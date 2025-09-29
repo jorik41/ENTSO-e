@@ -31,10 +31,14 @@ from .const import (
     CONF_CURRENCY,
     CONF_ENERGY_SCALE,
     CONF_ENTITY_NAME,
+    CONF_ENABLE_GENERATION,
+    CONF_ENABLE_LOAD,
     CONF_MODIFYER,
     CONF_VAT_VALUE,
     DEFAULT_CURRENCY,
     DEFAULT_ENERGY_SCALE,
+    DEFAULT_ENABLE_GENERATION,
+    DEFAULT_ENABLE_LOAD,
     DEFAULT_MODIFYER,
     DOMAIN,
     ENERGY_SCALES,
@@ -111,6 +115,8 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                         CONF_VAT_VALUE: user_input[CONF_VAT_VALUE],
                         CONF_ENTITY_NAME: user_input[CONF_ENTITY_NAME],
                         CONF_CALCULATION_MODE: user_input[CONF_CALCULATION_MODE],
+                        CONF_ENABLE_GENERATION: DEFAULT_ENABLE_GENERATION,
+                        CONF_ENABLE_LOAD: DEFAULT_ENABLE_LOAD,
                     },
                 )
 
@@ -145,6 +151,10 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
             user_input[CONF_AREA] = self.area
             user_input[CONF_API_KEY] = self.api_key
             user_input[CONF_ENTITY_NAME] = self.name
+            user_input.setdefault(
+                CONF_ENABLE_GENERATION, DEFAULT_ENABLE_GENERATION
+            )
+            user_input.setdefault(CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD)
 
             if user_input[CONF_ENTITY_NAME] not in (None, ""):
                 self.name = user_input[CONF_ENTITY_NAME]
@@ -190,6 +200,10 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                                 CONF_CALCULATION_MODE: user_input[
                                     CONF_CALCULATION_MODE
                                 ],
+                                CONF_ENABLE_GENERATION: user_input[
+                                    CONF_ENABLE_GENERATION
+                                ],
+                                CONF_ENABLE_LOAD: user_input[CONF_ENABLE_LOAD],
                             },
                         )
                     errors["base"] = "missing_current_price"
@@ -224,6 +238,12 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                             ]
                         ),
                     ),
+                    vol.Optional(
+                        CONF_ENABLE_GENERATION, default=DEFAULT_ENABLE_GENERATION
+                    ): bool,
+                    vol.Optional(
+                        CONF_ENABLE_LOAD, default=DEFAULT_ENABLE_LOAD
+                    ): bool,
                 },
             ),
         )
@@ -260,6 +280,18 @@ class EntsoeOptionFlowHandler(OptionsFlow):
 
         if user_input is not None:
             user_input[CONF_ENTITY_NAME] = self.config_entry.options[CONF_ENTITY_NAME]
+            user_input.setdefault(
+                CONF_ENABLE_GENERATION,
+                self.config_entry.options.get(
+                    CONF_ENABLE_GENERATION, DEFAULT_ENABLE_GENERATION
+                ),
+            )
+            user_input.setdefault(
+                CONF_ENABLE_LOAD,
+                self.config_entry.options.get(
+                    CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD
+                ),
+            )
             template_ok = False
             if user_input[CONF_MODIFYER] in (None, ""):
                 user_input[CONF_MODIFYER] = DEFAULT_MODIFYER
@@ -339,6 +371,18 @@ class EntsoeOptionFlowHandler(OptionsFlow):
                             ]
                         ),
                     ),
+                    vol.Optional(
+                        CONF_ENABLE_GENERATION,
+                        default=self.config_entry.options.get(
+                            CONF_ENABLE_GENERATION, DEFAULT_ENABLE_GENERATION
+                        ),
+                    ): bool,
+                    vol.Optional(
+                        CONF_ENABLE_LOAD,
+                        default=self.config_entry.options.get(
+                            CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD
+                        ),
+                    ): bool,
                 },
             ),
         )

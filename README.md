@@ -11,15 +11,27 @@ You need an ENTSO-e Restful API key for this integration. To request this API ke
 email address you entered during registration in the email body.
 
 ### Sensors
-The integration adds the following sensors:
-- Average Day-Ahead Electricity Price Today (This integration carries attributes with all prices)
+The integration adds the following sensor groups:
+
+#### Day-ahead electricity prices (`currency`/`energy scale`)
+- Average Day-Ahead Electricity Price Today (attributes include the full 24 hour price timeline)
 - Highest Day-Ahead Electricity Price Today
 - Lowest Day-Ahead Electricity Price Today
 - Current Day-Ahead Electricity Price
 - Current Percentage Relative To Highest Electricity Price Of The Day
+- Current Percentage Position In Today's Price Range
 - Next Hour Day-Ahead Electricity Price
 - Time Of Highest Energy Price Today
 - Time Of Lowest Energy Price Today
+
+#### Generation mix (MW)
+- Total generation output and each available production category for the selected bidding zone, including the next-hour forecast in the attributes.
+
+#### Load forecast (MW)
+- Current, next hour, minimum, maximum and average total load forecasts along with the full timeline in the attributes.
+
+> [!NOTE]
+> Generation mix and load forecast sensors each require additional API queries every update cycle. They are enabled by default, but you can toggle them off in the advanced configuration options if you need to stay within a tight API quota.
   
 ------
 ## Installation

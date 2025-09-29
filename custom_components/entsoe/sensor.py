@@ -303,18 +303,22 @@ async def async_setup_entry(
             coordinators["price"],
         )
     )
-    entities.extend(
-        _create_generation_sensors(
-            config_entry,
-            coordinators["generation"],
+
+    if generation_coordinator := coordinators.get("generation"):
+        entities.extend(
+            _create_generation_sensors(
+                config_entry,
+                generation_coordinator,
+            )
         )
-    )
-    entities.extend(
-        _create_load_sensors(
-            config_entry,
-            coordinators["load"],
+
+    if load_coordinator := coordinators.get("load"):
+        entities.extend(
+            _create_load_sensors(
+                config_entry,
+                load_coordinator,
+            )
         )
-    )
 
     async_add_entities(entities, True)
 

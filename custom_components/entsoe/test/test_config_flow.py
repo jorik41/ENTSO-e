@@ -18,10 +18,14 @@ from custom_components.entsoe.const import (
     CONF_CURRENCY,
     CONF_ENERGY_SCALE,
     CONF_ENTITY_NAME,
+    CONF_ENABLE_GENERATION,
+    CONF_ENABLE_LOAD,
     CONF_MODIFYER,
     CONF_VAT_VALUE,
     DEFAULT_CURRENCY,
     DEFAULT_ENERGY_SCALE,
+    DEFAULT_ENABLE_GENERATION,
+    DEFAULT_ENABLE_LOAD,
     DEFAULT_MODIFYER,
 )
 from homeassistant.core import HomeAssistant
@@ -50,6 +54,8 @@ def test_async_step_extra_rejects_template_without_current_price(monkeypatch):
         CONF_ENERGY_SCALE: DEFAULT_ENERGY_SCALE,
         CONF_ENTITY_NAME: flow.name,
         CONF_CALCULATION_MODE: CALCULATION_MODE["rotation"],
+        CONF_ENABLE_GENERATION: DEFAULT_ENABLE_GENERATION,
+        CONF_ENABLE_LOAD: DEFAULT_ENABLE_LOAD,
     }
 
     result = asyncio.run(flow.async_step_extra(user_input))
@@ -75,6 +81,8 @@ def test_options_flow_rejects_non_numeric_template(monkeypatch):
             CONF_CURRENCY: DEFAULT_CURRENCY,
             CONF_ENERGY_SCALE: DEFAULT_ENERGY_SCALE,
             CONF_CALCULATION_MODE: CALCULATION_MODE["publish"],
+            CONF_ENABLE_GENERATION: DEFAULT_ENABLE_GENERATION,
+            CONF_ENABLE_LOAD: DEFAULT_ENABLE_LOAD,
         }
     )
 
@@ -94,6 +102,8 @@ def test_options_flow_rejects_non_numeric_template(monkeypatch):
         CONF_CURRENCY: DEFAULT_CURRENCY,
         CONF_ENERGY_SCALE: DEFAULT_ENERGY_SCALE,
         CONF_CALCULATION_MODE: CALCULATION_MODE["rotation"],
+        CONF_ENABLE_GENERATION: DEFAULT_ENABLE_GENERATION,
+        CONF_ENABLE_LOAD: DEFAULT_ENABLE_LOAD,
     }
 
     result = asyncio.run(options_flow.async_step_init(user_input))

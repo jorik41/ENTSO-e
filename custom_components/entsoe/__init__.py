@@ -25,10 +25,14 @@ from .const import (
     CONF_AREA,
     CONF_ENERGY_SCALE,
     CONF_CALCULATION_MODE,
+    CONF_ENABLE_GENERATION,
+    CONF_ENABLE_LOAD,
     CONF_MODIFYER,
     CONF_VAT_VALUE,
     DEFAULT_MODIFYER,
     DEFAULT_ENERGY_SCALE,
+    DEFAULT_ENABLE_GENERATION,
+    DEFAULT_ENABLE_LOAD,
     DOMAIN,
 )
 from .coordinator import (
@@ -62,6 +66,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     calculation_mode = entry.options.get(
         CONF_CALCULATION_MODE, CALCULATION_MODE["default"]
     )
+    enable_generation = entry.options.get(
+        CONF_ENABLE_GENERATION, DEFAULT_ENABLE_GENERATION
+    )
+    enable_load = entry.options.get(CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD)
     price_coordinator = EntsoeCoordinator(
         hass,
         api_key=api_key,
@@ -72,28 +80,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         VAT=vat,
     )
 
-    generation_coordinator = EntsoeGenerationCoordinator(
-        hass,
-        api_key=api_key,
-        area=area,
-    )
+    data = {"price": price_coordinator}
 
-    load_coordinator = EntsoeLoadCoordinator(
-        hass,
-        api_key=api_key,
-        area=area,
-    )
+    if enable_generation:
+        generation_coordinator = EntsoeGenerationCoordinator(
+            hass,
+            api_key=api_key,
+            area=area,
+        )
+        data["generation"] = generation_coordinator
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
-        "price": price_coordinator,
-        "generation": generation_coordinator,
-        "load": load_coordinator,
-    }
+    if enable_load:
+        load_coordinator = EntsoeLoadCoordinator(
+            hass,
+            api_key=api_key,
+            area=area,
+        )
+        data["load"] = load_coordinator
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = data
 
     # Fetch initial data, so we have data when entities subscribe and set up the platform
     await price_coordinator.async_config_entry_first_refresh()
-    await generation_coordinator.async_config_entry_first_refresh()
-    await load_coordinator.async_config_entry_first_refresh()
+
+    if enable_generation:
+        await data["generation"].async_config_entry_first_refresh()
+
+    if enable_load:
+        await data["load"].async_config_entry_first_refresh()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 
