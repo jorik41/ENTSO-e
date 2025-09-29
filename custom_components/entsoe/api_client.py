@@ -3,6 +3,7 @@ from __future__ import annotations
 import enum
 import logging
 import xml.etree.ElementTree as ET
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Dict, Union
 
@@ -12,6 +13,44 @@ import requests
 _LOGGER = logging.getLogger(__name__)
 URL = "https://web-api.tp.entsoe.eu/api"
 DATETIMEFORMAT = "%Y%m%d%H00"
+
+DOCUMENT_TYPE_GENERATION_PER_TYPE = "A75"
+DOCUMENT_TYPE_TOTAL_LOAD = "A65"
+
+PROCESS_TYPE_REALISED = "A16"
+PROCESS_TYPE_DAY_AHEAD = "A01"
+PROCESS_TYPE_INTRADAY = "A18"
+
+PSR_CATEGORY_MAPPING = {
+    "B01": "biomass",
+    "B02": "coal",
+    "B03": "coal",
+    "B04": "fossil_gas",
+    "B05": "coal",
+    "B06": "oil",
+    "B07": "oil_shale",
+    "B08": "peat",
+    "B09": "geothermal",
+    "B10": "hydro_pumped_storage",
+    "B11": "hydro_run_of_river",
+    "B12": "hydro_reservoir",
+    "B13": "marine",
+    "B14": "nuclear",
+    "B15": "other_renewable",
+    "B16": "solar",
+    "B17": "waste",
+    "B18": "wind_offshore",
+    "B19": "wind_onshore",
+    "B20": "other",
+    "B21": "interconnector",
+    "B22": "interconnector",
+    "B23": "infrastructure",
+    "B24": "transformer",
+    "B25": "energy_storage",
+    "B26": "other",
+    "B27": "coal",
+    "B28": "hydro",
+}
 
 
 class EntsoeClient:
@@ -45,6 +84,40 @@ class EntsoeClient:
             if "}" in elem.tag:
                 elem.tag = elem.tag.split("}", 1)[1]
         return tree
+
+    def _parse_timestamp(self, value: str) -> datetime:
+        return (
+            datetime.strptime(value, "%Y-%m-%dT%H:%MZ")
+            .replace(tzinfo=pytz.UTC)
+            .astimezone()
+        )
+
+    def _normalize_resolution(self, resolution: str) -> str:
+        if resolution in ("PT60M", "PT1H"):
+            return "PT60M"
+        if resolution == "PT15M":
+            return "PT15M"
+        raise ValueError(f"Unsupported resolution {resolution}")
+
+    def _fill_missing_hours(
+        self, series: Dict[datetime, float], start_time: datetime, end_time: datetime
+    ) -> Dict[datetime, float]:
+        current_time = start_time
+        last_value = series.get(current_time)
+
+        while current_time < end_time:
+            if current_time in series:
+                last_value = series[current_time]
+            elif last_value is not None:
+                _LOGGER.debug(
+                    "Extending value %s of the previous hour to %s",
+                    last_value,
+                    current_time,
+                )
+                series[current_time] = last_value
+            current_time += timedelta(hours=1)
+
+        return series
 
     def query_day_ahead_prices(
         self, country_code: Union[Area, str], start: datetime, end: datetime
@@ -80,6 +153,74 @@ class EntsoeClient:
             print(f"Failed to retrieve data: {response.status_code}")
             return None
 
+    def query_generation_per_type(
+        self,
+        country_code: Union[Area, str],
+        start: datetime,
+        end: datetime,
+        process_type: str = PROCESS_TYPE_REALISED,
+    ) -> Dict[datetime, Dict[str, float]]:
+        area = Area[country_code.upper()]
+        process = process_type
+        if not isinstance(process, str):
+            process = str(process)
+
+        normalized = process.upper()
+
+        if normalized in ("REALIZED", "REALISED"):
+            process = PROCESS_TYPE_REALISED
+        elif normalized in ("DAY_AHEAD", "DAYAHEAD"):
+            process = PROCESS_TYPE_DAY_AHEAD
+        elif normalized == "INTRADAY":
+            process = PROCESS_TYPE_INTRADAY
+        elif normalized in (
+            PROCESS_TYPE_REALISED,
+            PROCESS_TYPE_DAY_AHEAD,
+            PROCESS_TYPE_INTRADAY,
+        ):
+            process = normalized
+
+        params = {
+            "documentType": DOCUMENT_TYPE_GENERATION_PER_TYPE,
+            "processType": process,
+            "in_Domain": area.code,
+            "out_Domain": area.code,
+        }
+
+        response = self._base_request(params=params, start=start, end=end)
+
+        if response.status_code == 200:
+            try:
+                return self.parse_generation_per_type_document(response.content)
+            except Exception as exc:
+                _LOGGER.debug(f"Failed to parse response content:{response.content}")
+                raise exc
+        else:
+            print(f"Failed to retrieve data: {response.status_code}")
+            return None
+
+    def query_total_load_forecast(
+        self, country_code: Union[Area, str], start: datetime, end: datetime
+    ) -> Dict[datetime, float]:
+        area = Area[country_code.upper()]
+        params = {
+            "documentType": DOCUMENT_TYPE_TOTAL_LOAD,
+            "processType": PROCESS_TYPE_DAY_AHEAD,
+            "out_Domain": area.code,
+        }
+
+        response = self._base_request(params=params, start=start, end=end)
+
+        if response.status_code == 200:
+            try:
+                return self.parse_total_load_document(response.content)
+            except Exception as exc:
+                _LOGGER.debug(f"Failed to parse response content:{response.content}")
+                raise exc
+        else:
+            print(f"Failed to retrieve data: {response.status_code}")
+            return None
+
     # lets process the received document
     def parse_price_document(self, document: str) -> str:
 
@@ -94,27 +235,20 @@ class EntsoeClient:
             # for all periods in this timeseries.....-> we still asume the time intervals do not overlap, and are in sequence
             for period in timeseries.findall(".//Period"):
                 # there can be different resolutions for each period (BE casus in which historical is quarterly and future is hourly)
-                resolution = period.find(".//resolution").text
+                resolution_raw = period.find(".//resolution").text
 
-                # for now supporting 60 and 15 minutes resolutions (ISO8601 defined)
-                if resolution == "PT60M" or resolution == "PT1H":
-                    resolution = "PT60M"
-                elif resolution != "PT15M":
+                try:
+                    resolution = self._normalize_resolution(resolution_raw)
+                except ValueError:
                     continue
 
-                response_start = period.find(".//timeInterval/start").text
-                start_time = (
-                    datetime.strptime(response_start, "%Y-%m-%dT%H:%MZ")
-                    .replace(tzinfo=pytz.UTC)
-                    .astimezone()
+                start_time = self._parse_timestamp(
+                    period.find(".//timeInterval/start").text
                 )
-                start_time.replace(minute=0)  # ensure we start from the whole hour
+                start_time.replace(minute=0)
 
-                response_end = period.find(".//timeInterval/end").text
-                end_time = (
-                    datetime.strptime(response_end, "%Y-%m-%dT%H:%MZ")
-                    .replace(tzinfo=pytz.UTC)
-                    .astimezone()
+                end_time = self._parse_timestamp(
+                    period.find(".//timeInterval/end").text
                 )
                 _LOGGER.debug(
                     f"Period found is from {start_time} till {end_time} with resolution {resolution}"
@@ -130,60 +264,167 @@ class EntsoeClient:
                 else:
                     series.update(self.process_PT15M_points(period, start_time))
 
-                # Now fill in any missing hours
-                current_time = start_time
-                last_price = series[current_time]
-
-                while current_time < end_time:  # upto excluding! the endtime
-                    if current_time in series:
-                        last_price = series[current_time]  # Update to the current price
-                    else:
-                        _LOGGER.debug(
-                            f"Extending the price {last_price} of the previous hour to {current_time}"
-                        )
-                        series[current_time] = (
-                            last_price  # Fill with the last known price
-                        )
-                    current_time += timedelta(hours=1)
+                self._fill_missing_hours(series, start_time, end_time)
 
         return series
 
     # processing hourly prices info -> thats easy
-    def process_PT60M_points(self, period: Element, start_time: datetime):
-        data = {}
+    def process_PT60M_points(
+        self,
+        period,
+        start_time: datetime,
+        value_tag: str = "price.amount",
+        round_digits: int | None = 2,
+    ):
+        data: Dict[datetime, float] = {}
         for point in period.findall(".//Point"):
-            position = point.find(".//position").text
-            price = point.find(".//price.amount").text
-            hour = int(position) - 1
+            position_text = point.find(".//position")
+            value_element = point.find(f".//{value_tag}")
+
+            if position_text is None or value_element is None:
+                continue
+
+            hour = int(position_text.text) - 1
+            value = float(value_element.text)
+            if round_digits is not None:
+                value = round(value, round_digits)
             time = start_time + timedelta(hours=hour)
-            data[time] = float(price)
+            data[time] = value
         return data
 
     # processing quarterly prices -> this is more complex
-    def process_PT15M_points(self, period: Element, start_time: datetime):
-        positions = {}
+    def process_PT15M_points(
+        self,
+        period,
+        start_time: datetime,
+        value_tag: str = "price.amount",
+        round_digits: int | None = 2,
+    ):
+        positions: Dict[int, float] = {}
 
         # first store all positions
         for point in period.findall(".//Point"):
-            position = point.find(".//position").text
-            price = point.find(".//price.amount").text
-            positions[int(position)] = float(price)
+            position_element = point.find(".//position")
+            value_element = point.find(f".//{value_tag}")
+
+            if position_element is None or value_element is None:
+                continue
+
+            positions[int(position_element.text)] = float(value_element.text)
+
+        if not positions:
+            return {}
 
         # now calculate hourly averages based on available points
-        data = {}
+        data: Dict[datetime, float] = {}
         last_hour = (max(positions.keys()) + 3) // 4
-        last_price = 0
+        last_value = positions[min(positions.keys())]
 
         for hour in range(last_hour):
-            sum_prices = 0
+            sum_values = 0.0
+            count = 0
             for idx in range(hour * 4 + 1, hour * 4 + 5):
-                last_price = positions.get(idx, last_price)
-                sum_prices += last_price
+                last_value = positions.get(idx, last_value)
+                sum_values += last_value
+                count += 1
+
+            average = sum_values / max(count, 1)
+            if round_digits is not None:
+                average = round(average, round_digits)
 
             time = start_time + timedelta(hours=hour)
-            data[time] = round(sum_prices / 4, 2)
+            data[time] = average
 
         return data
+
+    def parse_generation_per_type_document(
+        self, document: str
+    ) -> Dict[datetime, Dict[str, float]]:
+        root = self._remove_namespace(ET.fromstring(document))
+        generation = defaultdict(lambda: defaultdict(float))
+
+        for timeseries in root.findall(".//TimeSeries"):
+            psr_type = timeseries.findtext(".//MktPSRType/psrType")
+            category = PSR_CATEGORY_MAPPING.get(psr_type, "other")
+
+            for period in timeseries.findall(".//Period"):
+                resolution_raw = period.find(".//resolution").text
+
+                try:
+                    resolution = self._normalize_resolution(resolution_raw)
+                except ValueError:
+                    continue
+
+                start_time = self._parse_timestamp(
+                    period.find(".//timeInterval/start").text
+                )
+                end_time = self._parse_timestamp(period.find(".//timeInterval/end").text)
+
+                if resolution == "PT60M":
+                    points = self.process_PT60M_points(
+                        period,
+                        start_time,
+                        value_tag="quantity",
+                        round_digits=None,
+                    )
+                else:
+                    points = self.process_PT15M_points(
+                        period,
+                        start_time,
+                        value_tag="quantity",
+                        round_digits=None,
+                    )
+
+                points = self._fill_missing_hours(points, start_time, end_time)
+
+                for timestamp, value in points.items():
+                    generation[timestamp][category] += value
+
+        result: Dict[datetime, Dict[str, float]] = {}
+        for timestamp in sorted(generation.keys()):
+            result[timestamp] = dict(sorted(generation[timestamp].items()))
+
+        return result
+
+    def parse_total_load_document(self, document: str) -> Dict[datetime, float]:
+        root = self._remove_namespace(ET.fromstring(document))
+        load = defaultdict(float)
+
+        for timeseries in root.findall(".//TimeSeries"):
+            for period in timeseries.findall(".//Period"):
+                resolution_raw = period.find(".//resolution").text
+
+                try:
+                    resolution = self._normalize_resolution(resolution_raw)
+                except ValueError:
+                    continue
+
+                start_time = self._parse_timestamp(
+                    period.find(".//timeInterval/start").text
+                )
+                end_time = self._parse_timestamp(period.find(".//timeInterval/end").text)
+
+                if resolution == "PT60M":
+                    points = self.process_PT60M_points(
+                        period,
+                        start_time,
+                        value_tag="quantity",
+                        round_digits=None,
+                    )
+                else:
+                    points = self.process_PT15M_points(
+                        period,
+                        start_time,
+                        value_tag="quantity",
+                        round_digits=None,
+                    )
+
+                points = self._fill_missing_hours(points, start_time, end_time)
+
+                for timestamp, value in points.items():
+                    load[timestamp] += value
+
+        return {timestamp: load[timestamp] for timestamp in sorted(load.keys())}
 
 
 class Area(enum.Enum):
