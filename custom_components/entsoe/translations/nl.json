@@ -18,7 +18,9 @@
           "VAT_value": "BTW tarief (voorbeeld: voor 21% BTW voer 0.21 in)",
           "modifyer": "Prijs Aanpassing Template (Optioneel)",
           "currency": "Valuta van de aangepaste prijs (Optioneel)",
-          "energy_scale": "Eenheid van energie (Optioneel)"
+          "energy_scale": "Eenheid van energie (Optioneel)",
+          "enable_generation": "Productiemix sensoren inschakelen",
+          "enable_load": "Belastingsprognose sensoren inschakelen"
         }
       }
     },
@@ -39,7 +41,9 @@
           "currency": "Valuta van de aangepaste prijs (Optioneel)",
           "energy_scale": "Eenheid van energie (Optioneel)",
           "VAT_value": "BTW tarief (voorbeeld: voor 21% BTW voer 0.21 in)",
-          "name": "Naam (Optioneel)"
+          "name": "Naam (Optioneel)",
+          "enable_generation": "Productiemix sensoren inschakelen",
+          "enable_load": "Belastingsprognose sensoren inschakelen"
         }
       }
     },
