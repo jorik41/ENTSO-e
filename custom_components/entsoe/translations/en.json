@@ -66,6 +66,13 @@
           "name": "End",
           "description": "Specifies the date and time until which to retrieve prices. Defaults to today if omitted."
         }
+      },
+      "response": {
+        "error": {
+          "invalid_date": "The provided date \"{date}\" is invalid.",
+          "invalid_config_entry": "Config entry \"{config_entry}\" could not be found.",
+          "unloaded_config_entry": "Config entry \"{config_entry}\" is not loaded."
+        }
       }
     }
   }

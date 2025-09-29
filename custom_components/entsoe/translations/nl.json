@@ -66,6 +66,13 @@
           "name": "End",
           "description": "Specificeert het datum en tijdstip tot waar prijzen op te halen. Valt terug op vandaag als weggelaten."
         }
+      },
+      "response": {
+        "error": {
+          "invalid_date": "De opgegeven datum \"{date}\" is ongeldig.",
+          "invalid_config_entry": "Configuratie-item \"{config_entry}\" kan niet worden gevonden.",
+          "unloaded_config_entry": "Configuratie-item \"{config_entry}\" is niet geladen."
+        }
       }
     }
   }
