@@ -4,10 +4,20 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.typing import ConfigType
+try:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.const import Platform
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.typing import ConfigType
+except ModuleNotFoundError:  # pragma: no cover - used only in unit tests
+    from .test.hass_stubs import install_hass_stubs
+
+    install_hass_stubs()
+
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.const import Platform
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CALCULATION_MODE,
@@ -21,7 +31,11 @@ from .const import (
     DEFAULT_ENERGY_SCALE,
     DOMAIN,
 )
-from .coordinator import EntsoeCoordinator
+from .coordinator import (
+    EntsoeCoordinator,
+    EntsoeGenerationCoordinator,
+    EntsoeLoadCoordinator,
+)
 from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,7 +62,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     calculation_mode = entry.options.get(
         CONF_CALCULATION_MODE, CALCULATION_MODE["default"]
     )
-    entsoe_coordinator = EntsoeCoordinator(
+    price_coordinator = EntsoeCoordinator(
         hass,
         api_key=api_key,
         area=area,
@@ -58,10 +72,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         VAT=vat,
     )
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = entsoe_coordinator
+    generation_coordinator = EntsoeGenerationCoordinator(
+        hass,
+        api_key=api_key,
+        area=area,
+    )
+
+    load_coordinator = EntsoeLoadCoordinator(
+        hass,
+        api_key=api_key,
+        area=area,
+    )
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "price": price_coordinator,
+        "generation": generation_coordinator,
+        "load": load_coordinator,
+    }
 
     # Fetch initial data, so we have data when entities subscribe and set up the platform
-    await entsoe_coordinator.async_config_entry_first_refresh()
+    await price_coordinator.async_config_entry_first_refresh()
+    await generation_coordinator.async_config_entry_first_refresh()
+    await load_coordinator.async_config_entry_first_refresh()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 

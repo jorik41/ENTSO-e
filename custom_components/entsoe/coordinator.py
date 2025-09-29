@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import timedelta
+from collections import defaultdict
+from datetime import datetime, timedelta
 
 import homeassistant.helpers.config_validation as cv
 from homeassistant.core import HomeAssistant
@@ -339,3 +340,200 @@ class EntsoeCoordinator(DataUpdateCoordinator):
                 if k.date() >= start_date.date() and k.date() <= end_date.date()
             }
         return self.parse_hourprices(await self.fetch_prices(start_date, end_date))
+
+
+class EntsoeBaseCoordinator(DataUpdateCoordinator[dict]):
+    """Base coordinator providing helper selection utilities."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        logger: logging.Logger,
+        name: str,
+        update_interval: timedelta,
+    ) -> None:
+        super().__init__(hass, logger, name=name, update_interval=update_interval)
+
+    def _sorted_timestamps(self) -> list[datetime]:
+        if not self.data:
+            return []
+        return sorted(self.data.keys())
+
+    def _reference_time(self, reference: datetime | None = None) -> datetime:
+        if reference is not None:
+            return reference
+        return dt.now()
+
+    def _select_current_timestamp(self, reference: datetime | None = None) -> datetime | None:
+        ref = self._reference_time(reference)
+        for timestamp in reversed(self._sorted_timestamps()):
+            if timestamp <= ref:
+                return timestamp
+        timestamps = self._sorted_timestamps()
+        if timestamps:
+            return timestamps[-1]
+        return None
+
+    def _select_next_timestamp(self, reference: datetime | None = None) -> datetime | None:
+        ref = self._reference_time(reference)
+        for timestamp in self._sorted_timestamps():
+            if timestamp > ref:
+                return timestamp
+        return None
+
+    def current_timestamp(self, reference: datetime | None = None) -> datetime | None:
+        return self._select_current_timestamp(reference)
+
+    def next_timestamp(self, reference: datetime | None = None) -> datetime | None:
+        return self._select_next_timestamp(reference)
+
+
+class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
+    """Coordinator handling generation per type queries."""
+
+    _total_key = "total_generation"
+
+    def __init__(self, hass: HomeAssistant, api_key: str, area: str) -> None:
+        self.api_key = api_key
+        self.area = AREA_INFO[area]["code"]
+        self._client = EntsoeClient(api_key=api_key)
+        self._available_categories: set[str] = set()
+        logger = logging.getLogger(f"{__name__}.generation")
+        super().__init__(
+            hass,
+            logger,
+            name="ENTSO-e generation coordinator",
+            update_interval=timedelta(minutes=60),
+        )
+
+    async def _async_update_data(self) -> dict[datetime, dict[str, float]]:
+        start = dt.now() - timedelta(days=1)
+        end = start + timedelta(days=3)
+
+        try:
+            response: dict[datetime, dict[str, float]] | None = (
+                await self.hass.async_add_executor_job(
+                    self._client.query_generation_per_type,
+                    self.area,
+                    start,
+                    end,
+                )
+            )
+        except HTTPError as exc:  # pragma: no cover - matching behaviour of base coordinator
+            if exc.response.status_code == 401:
+                raise UpdateFailed("Unauthorized: Please check your API-key.") from exc
+            raise
+
+        if not response:
+            self._available_categories = set()
+            return {}
+
+        normalized: dict[datetime, dict[str, float]] = {}
+        categories: set[str] = set()
+        for timestamp, values in response.items():
+            normalized_values: dict[str, float] = defaultdict(float)
+            total = 0.0
+            for category, value in values.items():
+                normalized_values[category] += value
+                total += value
+            normalized_values[self._total_key] = total
+            normalized[timestamp] = dict(normalized_values)
+            categories.update(normalized_values.keys())
+
+        self._available_categories = categories
+        return normalized
+
+    def categories(self) -> list[str]:
+        return sorted(self._available_categories)
+
+    def current_value(self, category: str, reference: datetime | None = None) -> float | None:
+        timestamp = self._select_current_timestamp(reference)
+        if timestamp is None or not self.data:
+            return None
+        return self.data.get(timestamp, {}).get(category)
+
+    def next_value(self, category: str, reference: datetime | None = None) -> float | None:
+        timestamp = self._select_next_timestamp(reference)
+        if timestamp is None or not self.data:
+            return None
+        return self.data.get(timestamp, {}).get(category)
+
+    def timeline(self, category: str) -> dict[str, float]:
+        if not self.data:
+            return {}
+        timeline: dict[str, float] = {}
+        for timestamp, values in sorted(self.data.items()):
+            if category not in values:
+                continue
+            timeline[timestamp.isoformat()] = float(values[category])
+        return timeline
+
+
+class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
+    """Coordinator handling total load forecast queries."""
+
+    def __init__(self, hass: HomeAssistant, api_key: str, area: str) -> None:
+        self.api_key = api_key
+        self.area = AREA_INFO[area]["code"]
+        self._client = EntsoeClient(api_key=api_key)
+        logger = logging.getLogger(f"{__name__}.load")
+        super().__init__(
+            hass,
+            logger,
+            name="ENTSO-e load coordinator",
+            update_interval=timedelta(minutes=60),
+        )
+
+    async def _async_update_data(self) -> dict[datetime, float]:
+        start = dt.now() - timedelta(days=1)
+        end = start + timedelta(days=3)
+
+        try:
+            response: dict[datetime, float] | None = await self.hass.async_add_executor_job(
+                self._client.query_total_load_forecast,
+                self.area,
+                start,
+                end,
+            )
+        except HTTPError as exc:  # pragma: no cover - matching behaviour of base coordinator
+            if exc.response.status_code == 401:
+                raise UpdateFailed("Unauthorized: Please check your API-key.") from exc
+            raise
+
+        return response or {}
+
+    def current_value(self, reference: datetime | None = None) -> float | None:
+        timestamp = self._select_current_timestamp(reference)
+        if timestamp is None or not self.data:
+            return None
+        return float(self.data[timestamp])
+
+    def next_value(self, reference: datetime | None = None) -> float | None:
+        timestamp = self._select_next_timestamp(reference)
+        if timestamp is None or not self.data:
+            return None
+        return float(self.data[timestamp])
+
+    def min_value(self) -> float | None:
+        if not self.data:
+            return None
+        return float(min(self.data.values()))
+
+    def max_value(self) -> float | None:
+        if not self.data:
+            return None
+        return float(max(self.data.values()))
+
+    def average_value(self) -> float | None:
+        if not self.data:
+            return None
+        values = list(self.data.values())
+        return float(sum(values) / len(values))
+
+    def timeline(self) -> dict[str, float]:
+        if not self.data:
+            return {}
+        return {
+            timestamp.isoformat(): float(value)
+            for timestamp, value in sorted(self.data.items())
+        }
