@@ -1,11 +1,8 @@
 import unittest
 
-import sys
-import os
+from pathlib import Path
 
-sys.path.append(os.path.abspath("..\\"))
-
-from api_client import EntsoeClient
+from custom_components.entsoe.api_client import EntsoeClient
 from datetime import datetime
 
 
@@ -17,7 +14,7 @@ class TestDocumentParsing(unittest.TestCase):
         return super().setUp()
 
     def test_be_60m(self):
-        with open(".\\datasets\\BE_60M.xml") as f:
+        with open(Path(__file__).parent / "datasets" / "BE_60M.xml") as f:
             data = f.read()
 
         self.maxDiff = None
@@ -52,7 +49,7 @@ class TestDocumentParsing(unittest.TestCase):
         )
 
     def test_be_60m_15m_mix(self):
-        with open("./datasets/BE_60M_15M_mix.xml") as f:
+        with open(Path(__file__).parent / "datasets" / "BE_60M_15M_mix.xml") as f:
             data = f.read()
 
         self.maxDiff = None
@@ -140,7 +137,7 @@ class TestDocumentParsing(unittest.TestCase):
         )
 
     def test_de_60m_15m_overlap(self):
-        with open("./datasets/DE_60M_15M_overlap.xml") as f:
+        with open(Path(__file__).parent / "datasets" / "DE_60M_15M_overlap.xml") as f:
             data = f.read()
 
         self.maxDiff = None
@@ -203,7 +200,7 @@ class TestDocumentParsing(unittest.TestCase):
         )
 
     def test_be_15M_avg(self):
-        with open("./datasets/BE_15M_avg.xml") as f:
+        with open(Path(__file__).parent / "datasets" / "BE_15M_avg.xml") as f:
             data = f.read()
 
         self.maxDiff = None
@@ -224,7 +221,7 @@ class TestDocumentParsing(unittest.TestCase):
         )
 
     def test_be_exact4(self):
-        with open("./datasets/BE_15M_exact4.xml") as f:
+        with open(Path(__file__).parent / "datasets" / "BE_15M_exact4.xml") as f:
             data = f.read()
 
         self.maxDiff = None

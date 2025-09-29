@@ -17,6 +17,7 @@ from homeassistant.helpers.selector import (
     TemplateSelector,
     TemplateSelectorConfig,
 )
+from homeassistant.exceptions import TemplateError
 from homeassistant.helpers.template import Template
 
 from .const import (
@@ -43,6 +44,8 @@ from .const import (
 
 class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Entsoe."""
+
+    logger = logging.getLogger(__name__)
 
     def __init__(self):
         """Initialize ENTSO-e ConfigFlow."""
@@ -228,19 +231,14 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def _valid_template(self, user_template):
         try:
-            #
-            ut = Template(user_template, self.hass).async_render(
+            rendered = await Template(user_template, self.hass).async_render(
                 current_price=0
-            )  # Add current price as 0 as we dont know it yet..
-
-            return True
-            if isinstance(ut, float):
-                return True
-            else:
-                return False
-        except Exception as e:
-            pass
-        return False
+            )
+            float(rendered)
+        except (TemplateError, TypeError, ValueError) as err:
+            self.logger.debug("Template validation failed: %s", err)
+            return False
+        return True
 
 
 class EntsoeOptionFlowHandler(OptionsFlow):
@@ -349,16 +347,11 @@ class EntsoeOptionFlowHandler(OptionsFlow):
 
     async def _valid_template(self, user_template):
         try:
-            #
-            ut = Template(user_template, self.hass).async_render(
+            rendered = await Template(user_template, self.hass).async_render(
                 current_price=0
-            )  # Add current price as 0 as we dont know it yet..
-
-            return True
-            if isinstance(ut, float):
-                return True
-            else:
-                return False
-        except Exception as e:
-            pass
-        return False
+            )
+            float(rendered)
+        except (TemplateError, TypeError, ValueError) as err:
+            self.logger.debug("Template validation failed: %s", err)
+            return False
+        return True
