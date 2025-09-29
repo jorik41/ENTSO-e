@@ -10,6 +10,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.exceptions import TemplateError
 from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
@@ -39,6 +40,7 @@ from .const import (
     ENERGY_SCALES,
     UNIQUE_ID,
 )
+_LOGGER = logging.getLogger(__name__)
 
 
 class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
@@ -227,20 +229,14 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
         )
 
     async def _valid_template(self, user_template):
+        template = Template(user_template, self.hass)
         try:
-            #
-            ut = Template(user_template, self.hass).async_render(
-                current_price=0
-            )  # Add current price as 0 as we dont know it yet..
-
-            return True
-            if isinstance(ut, float):
-                return True
-            else:
-                return False
-        except Exception as e:
-            pass
-        return False
+            rendered = await template.async_render(current_price=0)
+            float(rendered)
+        except (TemplateError, TypeError, ValueError) as err:
+            _LOGGER.debug("Invalid modifier template '%s': %s", user_template, err)
+            return False
+        return True
 
 
 class EntsoeOptionFlowHandler(OptionsFlow):
@@ -348,17 +344,11 @@ class EntsoeOptionFlowHandler(OptionsFlow):
         )
 
     async def _valid_template(self, user_template):
+        template = Template(user_template, self.hass)
         try:
-            #
-            ut = Template(user_template, self.hass).async_render(
-                current_price=0
-            )  # Add current price as 0 as we dont know it yet..
-
-            return True
-            if isinstance(ut, float):
-                return True
-            else:
-                return False
-        except Exception as e:
-            pass
-        return False
+            rendered = await template.async_render(current_price=0)
+            float(rendered)
+        except (TemplateError, TypeError, ValueError) as err:
+            self.logger.debug("Invalid modifier template '%s': %s", user_template, err)
+            return False
+        return True

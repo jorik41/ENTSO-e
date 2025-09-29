@@ -101,7 +101,63 @@ def install_hass_stubs() -> None:
         data: dict[str, Any]
         options: dict[str, Any]
 
+    class ConfigFlow:  # pragma: no cover - lightweight stub
+        def __init__(self) -> None:
+            self.hass: HomeAssistant | None = None
+            self._unique_id: str | None = None
+
+        def __init_subclass__(cls, *, domain: str | None = None, **kwargs):
+            super().__init_subclass__(**kwargs)
+            cls.DOMAIN = domain
+
+        async def async_set_unique_id(self, unique_id: str) -> None:
+            self._unique_id = unique_id
+
+        def _abort_if_unique_id_configured(self) -> None:
+            return None
+
+        def async_show_form(self, *, step_id: str, data_schema=None, errors=None):
+            return {
+                "type": "form",
+                "step_id": step_id,
+                "data_schema": data_schema,
+                "errors": errors or {},
+            }
+
+        def async_create_entry(self, *, title: str, data=None, options=None):
+            return {
+                "type": "create_entry",
+                "title": title,
+                "data": data or {},
+                "options": options or {},
+            }
+
+    class OptionsFlow:  # pragma: no cover - lightweight stub
+        def __init__(self) -> None:
+            self.hass: HomeAssistant | None = None
+
+        def async_show_form(self, *, step_id: str, data_schema=None, errors=None):
+            return {
+                "type": "form",
+                "step_id": step_id,
+                "data_schema": data_schema,
+                "errors": errors or {},
+            }
+
+        def async_create_entry(self, title: str, data=None):
+            return {
+                "type": "create_entry",
+                "title": title,
+                "data": data or {},
+            }
+
     config_entries.ConfigEntry = ConfigEntry
+    config_entries.ConfigFlow = ConfigFlow
+    config_entries.OptionsFlow = OptionsFlow
+
+    data_entry_flow = _ensure_module("homeassistant.data_entry_flow")
+    FlowResult = Dict[str, Any]
+    data_entry_flow.FlowResult = FlowResult
 
     # ------------------------------------------------------------------
     # Constants
@@ -130,7 +186,11 @@ def install_hass_stubs() -> None:
             self.translation_key = translation_key
             self.translation_placeholders = translation_placeholders or {}
 
+    class TemplateError(Exception):  # pragma: no cover - stub
+        pass
+
     exceptions_mod.ServiceValidationError = ServiceValidationError
+    exceptions_mod.TemplateError = TemplateError
 
     config_entries.ConfigEntryState = Enum(  # type: ignore[attr-defined]
         "ConfigEntryState",
@@ -188,8 +248,9 @@ def install_hass_stubs() -> None:
     template_mod = _ensure_module("homeassistant.helpers.template")
 
     class Template:
-        def __init__(self, template: str) -> None:
+        def __init__(self, template: str, hass: Any | None = None) -> None:
             self.template = template
+            self.hass = hass
 
         async def async_render(self, *args, **kwargs):  # pragma: no cover - stub
             return kwargs.get("current_price", self.template)
@@ -217,10 +278,35 @@ def install_hass_stubs() -> None:
 
     selector = _ensure_module("homeassistant.helpers.selector")
 
+    class SelectOptionDict(dict):  # pragma: no cover - stub selector
+        def __init__(self, *, value: Any, label: str) -> None:
+            super().__init__(value=value, label=label)
+
+    class SelectSelectorConfig:  # pragma: no cover - stub selector
+        def __init__(self, options: list[SelectOptionDict] | None = None) -> None:
+            self.options = options or []
+
+    class SelectSelector:  # pragma: no cover - stub selector
+        def __init__(self, config: SelectSelectorConfig) -> None:
+            self.config = config
+
+    class TemplateSelectorConfig:  # pragma: no cover - stub selector
+        def __init__(self, config: Dict[str, Any] | None = None) -> None:
+            self.config = config or {}
+
+    class TemplateSelector:  # pragma: no cover - stub selector
+        def __init__(self, config: TemplateSelectorConfig | None = None) -> None:
+            self.config = config
+
     class ConfigEntrySelector:  # pragma: no cover - stub selector
         def __init__(self, config: Dict[str, Any] | None = None) -> None:
             self.config = config or {}
 
+    selector.SelectOptionDict = SelectOptionDict
+    selector.SelectSelectorConfig = SelectSelectorConfig
+    selector.SelectSelector = SelectSelector
+    selector.TemplateSelectorConfig = TemplateSelectorConfig
+    selector.TemplateSelector = TemplateSelector
     selector.ConfigEntrySelector = ConfigEntrySelector
 
     event = _ensure_module("homeassistant.helpers.event")
@@ -288,15 +374,27 @@ def install_hass_stubs() -> None:
         def __call__(self, value: Dict[str, Any]) -> Dict[str, Any]:  # pragma: no cover - stub
             return value
 
-    def Required(key):  # pragma: no cover - stub
+    def Required(key, *args, **kwargs):  # pragma: no cover - stub
         return key
 
-    def Optional(key):  # pragma: no cover - stub
+    def Optional(key, *args, **kwargs):  # pragma: no cover - stub
         return key
+
+    def All(*validators):  # pragma: no cover - stub
+        return lambda value: value
+
+    def Coerce(type_, msg=None):  # pragma: no cover - stub
+        return lambda value: value
+
+    def In(values):  # pragma: no cover - stub
+        return lambda value: value
 
     voluptuous.Schema = Schema
     voluptuous.Required = Required
     voluptuous.Optional = Optional
+    voluptuous.All = All
+    voluptuous.Coerce = Coerce
+    voluptuous.In = In
 
     # ------------------------------------------------------------------
     # Jinja2 stub
