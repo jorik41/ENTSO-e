@@ -1,4 +1,4 @@
-"""ENTSO-e current electricity and gas price information service."""
+"""ENTSO-e sensors for prices, generation, and load forecasts."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
-    DOMAIN,
     RestoreSensor,
     SensorDeviceClass,
     SensorEntityDescription,
@@ -25,8 +24,11 @@ from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import utcnow
 
+from .api_client import PSR_CATEGORY_MAPPING
 from .const import (
+    AREA_INFO,
     ATTRIBUTION,
+    CONF_AREA,
     CONF_CURRENCY,
     CONF_ENERGY_SCALE,
     CONF_ENTITY_NAME,
@@ -34,24 +36,62 @@ from .const import (
     DEFAULT_ENERGY_SCALE,
     DOMAIN,
 )
-from .coordinator import EntsoeCoordinator
+from .coordinator import (
+    EntsoeCoordinator,
+    EntsoeGenerationCoordinator,
+    EntsoeLoadCoordinator,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
+GENERATION_UNIT = "MW"
+LOAD_UNIT = "MW"
+PRICE_DEVICE_SUFFIX = "price"
+GENERATION_DEVICE_SUFFIX = "generation"
+LOAD_DEVICE_SUFFIX = "load"
+TOTAL_GENERATION_KEY = "total_generation"
+DEFAULT_GENERATION_CATEGORIES = sorted(set(PSR_CATEGORY_MAPPING.values()))
+
 
 @dataclass
-class EntsoeEntityDescription(SensorEntityDescription):
-    """Describes ENTSO-e sensor entity."""
+class EntsoePriceEntityDescription(SensorEntityDescription):
+    """Describes ENTSO-e price sensor entity."""
 
-    value_fn: Callable[[dict], StateType] = None
+    value_fn: Callable[[EntsoeCoordinator], StateType] | None = None
+    attrs_fn: Callable[[EntsoeCoordinator], dict[str, Any]] | None = None
 
 
-def sensor_descriptions(
+@dataclass
+class EntsoeGenerationEntityDescription(SensorEntityDescription):
+    """Describes ENTSO-e generation sensor entity."""
+
+    category: str = ""
+    value_fn: Callable[[EntsoeGenerationCoordinator], StateType] | None = None
+    attrs_fn: Callable[[EntsoeGenerationCoordinator], dict[str, Any]] | None = None
+
+
+@dataclass
+class EntsoeLoadEntityDescription(SensorEntityDescription):
+    """Describes ENTSO-e load forecast sensor entity."""
+
+    value_fn: Callable[[EntsoeLoadCoordinator], StateType] | None = None
+    attrs_fn: Callable[[EntsoeLoadCoordinator], dict[str, Any]] | None = None
+
+
+def price_sensor_descriptions(
     currency: str, energy_scale: str
-) -> tuple[EntsoeEntityDescription, ...]:
-    """Construct EntsoeEntityDescription."""
+) -> tuple[EntsoePriceEntityDescription, ...]:
+    """Construct price sensor descriptions."""
+
+    def _avg_attrs(coordinator: EntsoeCoordinator) -> dict[str, Any]:
+        return {
+            "prices_today": coordinator.get_prices_today(),
+            "prices_tomorrow": coordinator.get_prices_tomorrow(),
+            "prices": coordinator.get_prices(),
+        }
+
     return (
-        EntsoeEntityDescription(
+        EntsoePriceEntityDescription(
             key="current_price",
             name="Current electricity market price",
             native_unit_of_measurement=f"{currency}/{energy_scale}",
@@ -60,7 +100,7 @@ def sensor_descriptions(
             suggested_display_precision=3,
             value_fn=lambda coordinator: coordinator.get_current_hourprice(),
         ),
-        EntsoeEntityDescription(
+        EntsoePriceEntityDescription(
             key="next_hour_price",
             name="Next hour electricity market price",
             native_unit_of_measurement=f"{currency}/{energy_scale}",
@@ -69,7 +109,7 @@ def sensor_descriptions(
             suggested_display_precision=3,
             value_fn=lambda coordinator: coordinator.get_next_hourprice(),
         ),
-        EntsoeEntityDescription(
+        EntsoePriceEntityDescription(
             key="min_price",
             name="Lowest energy price",
             native_unit_of_measurement=f"{currency}/{energy_scale}",
@@ -78,7 +118,7 @@ def sensor_descriptions(
             suggested_display_precision=3,
             value_fn=lambda coordinator: coordinator.get_min_price(),
         ),
-        EntsoeEntityDescription(
+        EntsoePriceEntityDescription(
             key="max_price",
             name="Highest energy price",
             native_unit_of_measurement=f"{currency}/{energy_scale}",
@@ -87,7 +127,7 @@ def sensor_descriptions(
             suggested_display_precision=3,
             value_fn=lambda coordinator: coordinator.get_max_price(),
         ),
-        EntsoeEntityDescription(
+        EntsoePriceEntityDescription(
             key="avg_price",
             name="Average electricity price",
             native_unit_of_measurement=f"{currency}/{energy_scale}",
@@ -95,8 +135,9 @@ def sensor_descriptions(
             icon="mdi:currency-eur",
             suggested_display_precision=3,
             value_fn=lambda coordinator: coordinator.get_avg_price(),
+            attrs_fn=_avg_attrs,
         ),
-        EntsoeEntityDescription(
+        EntsoePriceEntityDescription(
             key="percentage_of_max",
             name="Current percentage of highest electricity price",
             native_unit_of_measurement=f"{PERCENTAGE}",
@@ -105,7 +146,7 @@ def sensor_descriptions(
             state_class=SensorStateClass.MEASUREMENT,
             value_fn=lambda coordinator: coordinator.get_percentage_of_max(),
         ),
-        EntsoeEntityDescription(
+        EntsoePriceEntityDescription(
             key="percentage_of_range",
             name="Current percentage in electricity price range",
             native_unit_of_measurement=f"{PERCENTAGE}",
@@ -114,14 +155,14 @@ def sensor_descriptions(
             state_class=SensorStateClass.MEASUREMENT,
             value_fn=lambda coordinator: coordinator.get_percentage_of_range(),
         ),
-        EntsoeEntityDescription(
+        EntsoePriceEntityDescription(
             key="highest_price_time_today",
             name="Time of highest price",
             device_class=SensorDeviceClass.TIMESTAMP,
             icon="mdi:clock",
             value_fn=lambda coordinator: coordinator.get_max_time(),
         ),
-        EntsoeEntityDescription(
+        EntsoePriceEntityDescription(
             key="lowest_price_time_today",
             name="Time of lowest price",
             device_class=SensorDeviceClass.TIMESTAMP,
@@ -131,147 +172,401 @@ def sensor_descriptions(
     )
 
 
+def generation_sensor_descriptions(
+    coordinator: EntsoeGenerationCoordinator,
+) -> list[EntsoeGenerationEntityDescription]:
+    """Create generation sensor descriptions for all categories."""
+
+    categories = set(DEFAULT_GENERATION_CATEGORIES)
+    categories.update(coordinator.categories())
+    categories.add(TOTAL_GENERATION_KEY)
+
+    descriptions: list[EntsoeGenerationEntityDescription] = []
+    for category in sorted(categories):
+        key = f"generation_{category}"
+        name = "Total generation" if category == TOTAL_GENERATION_KEY else _format_category_name(category)
+        descriptions.append(
+            EntsoeGenerationEntityDescription(
+                key=key,
+                name=f"{name.title()} output",
+                native_unit_of_measurement=GENERATION_UNIT,
+                state_class=SensorStateClass.MEASUREMENT,
+                icon="mdi:factory",
+                category=category,
+                value_fn=lambda coordinator, cat=category: coordinator.current_value(cat),
+                attrs_fn=lambda coordinator, cat=category: _generation_attrs(coordinator, cat),
+            )
+        )
+    return descriptions
+
+
+def _generation_attrs(
+    coordinator: EntsoeGenerationCoordinator, category: str
+) -> dict[str, Any]:
+    current_ts = coordinator.current_timestamp()
+    next_ts = coordinator.next_timestamp()
+    attrs: dict[str, Any] = {
+        "timeline": coordinator.timeline(category),
+    }
+    next_value = coordinator.next_value(category)
+    if next_value is not None:
+        attrs["next_value"] = next_value
+    if current_ts:
+        attrs["current_timestamp"] = current_ts.isoformat()
+    if next_ts:
+        attrs["next_timestamp"] = next_ts.isoformat()
+    return attrs
+
+
+def load_sensor_descriptions() -> tuple[EntsoeLoadEntityDescription, ...]:
+    """Construct load forecast sensor descriptions."""
+
+    return (
+        EntsoeLoadEntityDescription(
+            key="load_current",
+            name="Current load forecast",
+            native_unit_of_measurement=LOAD_UNIT,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:transmission-tower",
+            value_fn=lambda coordinator: coordinator.current_value(),
+            attrs_fn=lambda coordinator: _load_attrs(coordinator, include_next=True),
+        ),
+        EntsoeLoadEntityDescription(
+            key="load_next",
+            name="Next hour load forecast",
+            native_unit_of_measurement=LOAD_UNIT,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:transmission-tower-export",
+            value_fn=lambda coordinator: coordinator.next_value(),
+            attrs_fn=lambda coordinator: _load_attrs(coordinator, include_next=False),
+        ),
+        EntsoeLoadEntityDescription(
+            key="load_min",
+            name="Minimum load forecast",
+            native_unit_of_measurement=LOAD_UNIT,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:arrow-collapse-down",
+            value_fn=lambda coordinator: coordinator.min_value(),
+            attrs_fn=lambda coordinator: {"timeline": coordinator.timeline()},
+        ),
+        EntsoeLoadEntityDescription(
+            key="load_max",
+            name="Maximum load forecast",
+            native_unit_of_measurement=LOAD_UNIT,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:arrow-expand-up",
+            value_fn=lambda coordinator: coordinator.max_value(),
+            attrs_fn=lambda coordinator: {"timeline": coordinator.timeline()},
+        ),
+        EntsoeLoadEntityDescription(
+            key="load_avg",
+            name="Average load forecast",
+            native_unit_of_measurement=LOAD_UNIT,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:chart-bell-curve",
+            value_fn=lambda coordinator: coordinator.average_value(),
+            attrs_fn=lambda coordinator: _load_attrs(coordinator, include_next=True),
+        ),
+    )
+
+
+def _load_attrs(
+    coordinator: EntsoeLoadCoordinator, include_next: bool
+) -> dict[str, Any]:
+    attrs: dict[str, Any] = {"timeline": coordinator.timeline()}
+    current_ts = coordinator.current_timestamp()
+    next_ts = coordinator.next_timestamp()
+    if include_next:
+        next_value = coordinator.next_value()
+        if next_value is not None:
+            attrs["next_value"] = next_value
+    if current_ts:
+        attrs["current_timestamp"] = current_ts.isoformat()
+    if next_ts:
+        attrs["next_timestamp"] = next_ts.isoformat()
+    return attrs
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up ENTSO-e price sensor entries."""
-    entsoe_coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    """Set up ENTSO-e sensor entries."""
 
-    entities = []
-    entity = {}
-    for description in sensor_descriptions(
-        currency=config_entry.options.get(CONF_CURRENCY, DEFAULT_CURRENCY),
-        energy_scale=config_entry.options.get(CONF_ENERGY_SCALE, DEFAULT_ENERGY_SCALE),
-    ):
-        entity = description
-        entities.append(
-            EntsoeSensor(
-                entsoe_coordinator, entity, config_entry.options[CONF_ENTITY_NAME]
-            )
+    coordinators = hass.data[DOMAIN][config_entry.entry_id]
+
+    entities: list[RestoreSensor] = []
+    entities.extend(
+        _create_price_sensors(
+            config_entry,
+            coordinators["price"],
         )
+    )
+    entities.extend(
+        _create_generation_sensors(
+            config_entry,
+            coordinators["generation"],
+        )
+    )
+    entities.extend(
+        _create_load_sensors(
+            config_entry,
+            coordinators["load"],
+        )
+    )
 
-    # Add an entity for each sensor type
     async_add_entities(entities, True)
 
 
-class EntsoeSensor(CoordinatorEntity, RestoreSensor):
-    """Representation of a ENTSO-e sensor."""
+def _create_price_sensors(
+    config_entry: ConfigEntry, coordinator: EntsoeCoordinator
+) -> list[RestoreSensor]:
+    name = config_entry.options.get(CONF_ENTITY_NAME, "")
+    currency = config_entry.options.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+    energy_scale = config_entry.options.get(CONF_ENERGY_SCALE, DEFAULT_ENERGY_SCALE)
+
+    return [
+        EntsoePriceSensor(coordinator, description, config_entry, name)
+        for description in price_sensor_descriptions(currency, energy_scale)
+    ]
+
+
+def _create_generation_sensors(
+    config_entry: ConfigEntry,
+    coordinator: EntsoeGenerationCoordinator,
+) -> list[RestoreSensor]:
+    area = config_entry.options.get(CONF_AREA)
+    area_name = AREA_INFO.get(area, {}).get("name", area or "")
+
+    return [
+        EntsoeGenerationSensor(coordinator, description, config_entry, area_name)
+        for description in generation_sensor_descriptions(coordinator)
+    ]
+
+
+def _create_load_sensors(
+    config_entry: ConfigEntry, coordinator: EntsoeLoadCoordinator
+) -> list[RestoreSensor]:
+    area = config_entry.options.get(CONF_AREA)
+    area_name = AREA_INFO.get(area, {}).get("name", area or "")
+
+    return [
+        EntsoeLoadSensor(coordinator, description, config_entry, area_name)
+        for description in load_sensor_descriptions()
+    ]
+
+
+class _HourlyCoordinatorSensor(CoordinatorEntity, RestoreSensor):
+    """Base sensor that refreshes state every hour to reflect timeline changes."""
 
     _attr_attribution = ATTRIBUTION
+
+    def __init__(self, coordinator):
+        super().__init__(coordinator)
+        self._update_job = HassJob(self.async_schedule_update_ha_state)
+        self._unsub_update: Callable[[], None] | None = None
+        self._last_update_success = True
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub_update:
+            self._unsub_update()
+            self._unsub_update = None
+        await super().async_will_remove_from_hass()
+
+    async def async_update(self) -> None:
+        if self._unsub_update:
+            self._unsub_update()
+            self._unsub_update = None
+
+        self._unsub_update = event.async_track_point_in_utc_time(
+            self.hass,
+            self._update_job,
+            utcnow().replace(minute=0, second=0, microsecond=0) + timedelta(hours=1),
+        )
+
+        try:
+            await self._async_handle_coordinator_update()
+            self._last_update_success = True
+        except Exception as exc:  # pragma: no cover - defensive safeguard
+            self._last_update_success = False
+            _LOGGER.warning("Unable to update entity '%s': %s", self.entity_id, exc)
+
+    async def _async_handle_coordinator_update(self) -> None:
+        raise NotImplementedError
+
+    @property
+    def available(self) -> bool:
+        return self._last_update_success and super().available
+
+    def _handle_coordinator_update(self) -> None:
+        super()._handle_coordinator_update()
+        if self.hass.is_running:
+            self.hass.async_create_task(self.async_update())
+
+
+class EntsoePriceSensor(_HourlyCoordinatorSensor):
+    """Representation of an ENTSO-e price sensor."""
+
+    entity_description: EntsoePriceEntityDescription
 
     def __init__(
         self,
         coordinator: EntsoeCoordinator,
-        description: EntsoeEntityDescription,
-        name: str = "",
+        description: EntsoePriceEntityDescription,
+        config_entry: ConfigEntry,
+        name: str,
     ) -> None:
-        """Initialize the sensor."""
-        self.description = description
-        self.last_update_success = True
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._config_entry = config_entry
+        self._name_suffix = name
 
-        if name not in (None, ""):
-            # The Id used for addressing the entity in the ui, recorder history etc.
+        if name:
             self.entity_id = f"{DOMAIN}.{name}_{description.name}"
-            # unique id in .storage file for ui configuration.
-            self._attr_unique_id = f"entsoe.{name}_{description.key}"
+            self._attr_unique_id = (
+                f"entsoe.{config_entry.entry_id}.{PRICE_DEVICE_SUFFIX}.{name}.{description.key}"
+            )
             self._attr_name = f"{description.name} ({name})"
         else:
             self.entity_id = f"{DOMAIN}.{description.name}"
-            self._attr_unique_id = f"entsoe.{description.key}"
-            self._attr_name = f"{description.name}"
+            self._attr_unique_id = (
+                f"entsoe.{config_entry.entry_id}.{PRICE_DEVICE_SUFFIX}.{description.key}"
+            )
+            self._attr_name = description.name
 
-        self.entity_description: EntsoeEntityDescription = description
         self._attr_icon = description.icon
         self._attr_suggested_display_precision = (
             description.suggested_display_precision
             if description.suggested_display_precision is not None
             else 2
         )
-
         self._attr_device_info = DeviceInfo(
             entry_type=DeviceEntryType.SERVICE,
-            identifiers={
-                (
-                    DOMAIN,
-                    f"{coordinator.config_entry.entry_id}_entsoe",
-                )
-            },
+            identifiers={(DOMAIN, f"{config_entry.entry_id}_{PRICE_DEVICE_SUFFIX}")},
             manufacturer="entso-e",
-            model="",
-            name="entso-e" + ((" (" + name + ")") if name != "" else ""),
+            name="ENTSO-e Prices"
+            + ((f" ({name})") if name else ""),
         )
 
-        self._update_job = HassJob(self.async_schedule_update_ha_state)
-        self._unsub_update = None
-
-        super().__init__(coordinator)
-
-    async def async_update(self) -> None:
-        """Get the latest data and updates the states."""
-        # _LOGGER.debug(f"update function for '{self.entity_id} called.'")
-
-        # Cancel the currently scheduled event if there is any
-        if self._unsub_update:
-            self._unsub_update()
-            self._unsub_update = None
-
-        # Schedule the next update at exactly the next whole hour sharp
-        self._unsub_update = event.async_track_point_in_utc_time(
-            self.hass,
-            self._update_job,
-            utcnow().replace(minute=0, second=0) + timedelta(hours=1),
-        )
-
-        # ensure the calculated data is refreshed by the changing hour
-        self.coordinator.sync_calculator()
-
+    async def _async_handle_coordinator_update(self) -> None:
         if (
-            self.coordinator.data is not None
-            and self.coordinator.today_data_available()
+            self.coordinator.data is None
+            or not self.coordinator.today_data_available()
         ):
-            value: Any = None
+            raise RuntimeError("No valid data for today available.")
+
+        self.coordinator.sync_calculator()
+        if self.entity_description.value_fn is None:
+            raise RuntimeError("Missing value function")
+
+        value: Any = self.entity_description.value_fn(self.coordinator)
+        self._attr_native_value = value
+
+        if self.entity_description.attrs_fn is not None:
             try:
-                # _LOGGER.debug(f"current coordinator.data value: {self.coordinator.data}")
-                value = self.entity_description.value_fn(self.coordinator)
-
-                self._attr_native_value = value
-                self.last_update_success = True
-                _LOGGER.debug(f"updated '{self.entity_id}' to value: {value}")
-
-            except Exception as exc:
-                # No data available
-                self.last_update_success = False
+                self._attr_extra_state_attributes = self.entity_description.attrs_fn(
+                    self.coordinator
+                )
+            except Exception as exc:  # pragma: no cover - defensive safeguard
                 _LOGGER.warning(
-                    f"Unable to update entity '{self.entity_id}', value: {value} and error: {exc}, data: {self.coordinator.data}"
+                    "Unable to update attributes for '%s': %s",
+                    self.entity_id,
+                    exc,
                 )
-        else:
-            _LOGGER.warning(
-                f"Unable to update entity '{self.entity_id}': No valid data for today available."
-            )
-            self.last_update_success = False
 
-        try:
-            if (
-                self.description.key == "avg_price"
-                and self._attr_native_value is not None
-                and self.coordinator.data is not None
-            ):
-                self._attr_extra_state_attributes = {
-                    "prices_today": self.coordinator.get_prices_today(),
-                    "prices_tomorrow": self.coordinator.get_prices_tomorrow(),
-                    "prices": self.coordinator.get_prices(),
-                }
-                _LOGGER.debug(
-                    f"attributes updated: {self._attr_extra_state_attributes}"
-                )
-        except Exception as exc:
-            _LOGGER.warning(
-                f"Unable to update attributes of the average entity, error: {exc}, data: {self.coordinator.data}"
+
+class EntsoeGenerationSensor(_HourlyCoordinatorSensor):
+    """Representation of a generation sensor."""
+
+    entity_description: EntsoeGenerationEntityDescription
+
+    def __init__(
+        self,
+        coordinator: EntsoeGenerationCoordinator,
+        description: EntsoeGenerationEntityDescription,
+        config_entry: ConfigEntry,
+        area_name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = (
+            f"entsoe.{config_entry.entry_id}.{GENERATION_DEVICE_SUFFIX}.{description.key}"
+        )
+        self._attr_name = (
+            f"{description.name} ({area_name})" if area_name else description.name
+        )
+        self._attr_icon = description.icon
+        self.entity_id = f"{DOMAIN}.{description.key}"
+        self._attr_device_info = DeviceInfo(
+            entry_type=DeviceEntryType.SERVICE,
+            identifiers={(DOMAIN, f"{config_entry.entry_id}_{GENERATION_DEVICE_SUFFIX}")},
+            manufacturer="entso-e",
+            name="ENTSO-e Generation"
+            + ((f" ({area_name})") if area_name else ""),
+        )
+
+    async def _async_handle_coordinator_update(self) -> None:
+        if not self.coordinator.data:
+            raise RuntimeError("No generation data available")
+
+        if self.entity_description.value_fn is None:
+            raise RuntimeError("Missing value function")
+
+        value = self.entity_description.value_fn(self.coordinator)
+        self._attr_native_value = value
+
+        if self.entity_description.attrs_fn is not None:
+            self._attr_extra_state_attributes = self.entity_description.attrs_fn(
+                self.coordinator
             )
 
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        return self.last_update_success
+
+class EntsoeLoadSensor(_HourlyCoordinatorSensor):
+    """Representation of a total load forecast sensor."""
+
+    entity_description: EntsoeLoadEntityDescription
+
+    def __init__(
+        self,
+        coordinator: EntsoeLoadCoordinator,
+        description: EntsoeLoadEntityDescription,
+        config_entry: ConfigEntry,
+        area_name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = (
+            f"entsoe.{config_entry.entry_id}.{LOAD_DEVICE_SUFFIX}.{description.key}"
+        )
+        self._attr_name = (
+            f"{description.name} ({area_name})" if area_name else description.name
+        )
+        self._attr_icon = description.icon
+        self.entity_id = f"{DOMAIN}.{description.key}"
+        self._attr_device_info = DeviceInfo(
+            entry_type=DeviceEntryType.SERVICE,
+            identifiers={(DOMAIN, f"{config_entry.entry_id}_{LOAD_DEVICE_SUFFIX}")},
+            manufacturer="entso-e",
+            name="ENTSO-e Load forecast"
+            + ((f" ({area_name})") if area_name else ""),
+        )
+
+    async def _async_handle_coordinator_update(self) -> None:
+        if not self.coordinator.data:
+            raise RuntimeError("No load forecast data available")
+
+        if self.entity_description.value_fn is None:
+            raise RuntimeError("Missing value function")
+
+        value = self.entity_description.value_fn(self.coordinator)
+        self._attr_native_value = value
+
+        if self.entity_description.attrs_fn is not None:
+            self._attr_extra_state_attributes = self.entity_description.attrs_fn(
+                self.coordinator
+            )
+
+
+def _format_category_name(category: str) -> str:
+    return category.replace("_", " ")
