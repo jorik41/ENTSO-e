@@ -1,12 +1,23 @@
-import unittest
-
-import sys
 import os
-
-sys.path.append(os.path.abspath("..\\"))
-
-from api_client import EntsoeClient
+import sys
+import unittest
 from datetime import datetime
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+sys.path.append(str(PACKAGE_ROOT))
+
+from api_client import (
+    DOCUMENT_TYPE_GENERATION_PER_TYPE,
+    DOCUMENT_TYPE_TOTAL_LOAD,
+    PROCESS_TYPE_DAY_AHEAD,
+    PROCESS_TYPE_REALISED,
+    EntsoeClient,
+)
+
+
+DATASET_DIR = Path(__file__).parent / "datasets"
 
 
 class TestDocumentParsing(unittest.TestCase):
@@ -17,7 +28,7 @@ class TestDocumentParsing(unittest.TestCase):
         return super().setUp()
 
     def test_be_60m(self):
-        with open(".\\datasets\\BE_60M.xml") as f:
+        with open(DATASET_DIR / "BE_60M.xml") as f:
             data = f.read()
 
         self.maxDiff = None
@@ -52,7 +63,7 @@ class TestDocumentParsing(unittest.TestCase):
         )
 
     def test_be_60m_15m_mix(self):
-        with open("./datasets/BE_60M_15M_mix.xml") as f:
+        with open(DATASET_DIR / "BE_60M_15M_mix.xml") as f:
             data = f.read()
 
         self.maxDiff = None
@@ -140,7 +151,7 @@ class TestDocumentParsing(unittest.TestCase):
         )
 
     def test_de_60m_15m_overlap(self):
-        with open("./datasets/DE_60M_15M_overlap.xml") as f:
+        with open(DATASET_DIR / "DE_60M_15M_overlap.xml") as f:
             data = f.read()
 
         self.maxDiff = None
@@ -202,8 +213,141 @@ class TestDocumentParsing(unittest.TestCase):
             },
         )
 
+    def test_parse_generation_per_type_be(self):
+        with open(DATASET_DIR / "BE_generation.xml") as f:
+            document = f.read()
+
+        series = self.client.parse_generation_per_type_document(document)
+
+        self.assertDictEqual(
+            series,
+            {
+                datetime.fromisoformat("2024-10-01T00:00:00Z"): {
+                    "coal": 100.0,
+                    "fossil_gas": 200.0,
+                    "interconnector": 5.0,
+                    "nuclear": 400.0,
+                    "solar": 120.0,
+                    "wind_onshore": 46.0,
+                },
+                datetime.fromisoformat("2024-10-01T01:00:00Z"): {
+                    "coal": 120.0,
+                    "fossil_gas": 210.0,
+                    "interconnector": 5.0,
+                    "nuclear": 405.0,
+                    "solar": 130.0,
+                    "wind_onshore": 66.0,
+                },
+            },
+        )
+
+    def test_parse_generation_per_type_eu(self):
+        with open(DATASET_DIR / "EU_generation.xml") as f:
+            document = f.read()
+
+        series = self.client.parse_generation_per_type_document(document)
+
+        self.assertDictEqual(
+            series,
+            {
+                datetime.fromisoformat("2024-10-01T00:00:00Z"): {
+                    "biomass": 90.0,
+                    "energy_storage": 20.0,
+                    "fossil_gas": 227.5,
+                    "hydro_pumped_storage": 300.0,
+                    "hydro_run_of_river": 250.0,
+                    "other": 5.0,
+                    "solar": 0.0,
+                    "wind_offshore": 82.0,
+                },
+                datetime.fromisoformat("2024-10-01T01:00:00Z"): {
+                    "biomass": 95.0,
+                    "energy_storage": 15.0,
+                    "fossil_gas": 247.5,
+                    "hydro_pumped_storage": 310.0,
+                    "hydro_run_of_river": 245.0,
+                    "other": 5.0,
+                    "solar": 0.0,
+                    "wind_offshore": 93.0,
+                },
+                datetime.fromisoformat("2024-10-01T02:00:00Z"): {
+                    "biomass": 100.0,
+                    "energy_storage": 10.0,
+                    "fossil_gas": 260.0,
+                    "hydro_pumped_storage": 315.0,
+                    "hydro_run_of_river": 240.0,
+                    "other": 5.0,
+                    "solar": 10.0,
+                    "wind_offshore": 106.0,
+                },
+            },
+        )
+
+    def test_parse_total_load_forecast(self):
+        with open(DATASET_DIR / "BE_total_load.xml") as f:
+            document = f.read()
+
+        series = self.client.parse_total_load_document(document)
+
+        self.assertDictEqual(
+            series,
+            {
+                datetime.fromisoformat("2024-10-01T00:00:00Z"): 1040.0,
+                datetime.fromisoformat("2024-10-01T01:00:00Z"): 1130.0,
+                datetime.fromisoformat("2024-10-01T02:00:00Z"): 1200.0,
+                datetime.fromisoformat("2024-10-01T03:00:00Z"): 1250.0,
+            },
+        )
+
+    def test_query_generation_per_type_uses_process_mapping(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.content = b"<root />"
+
+        with patch.object(self.client, "_base_request", return_value=response) as base_mock, patch.object(
+            self.client,
+            "parse_generation_per_type_document",
+            return_value={},
+        ) as parse_mock:
+            result = self.client.query_generation_per_type(
+                "be",
+                datetime(2024, 10, 1),
+                datetime(2024, 10, 2),
+                process_type="day_ahead",
+            )
+
+        self.assertEqual(result, {})
+        base_args = base_mock.call_args.kwargs
+        self.assertEqual(base_args["params"]["documentType"], DOCUMENT_TYPE_GENERATION_PER_TYPE)
+        self.assertEqual(base_args["params"]["processType"], PROCESS_TYPE_DAY_AHEAD)
+        self.assertEqual(base_args["params"]["in_Domain"], "10YBE----------2")
+        self.assertEqual(base_args["params"]["out_Domain"], "10YBE----------2")
+        parse_mock.assert_called_once()
+
+    def test_query_total_load_forecast_params(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.content = b"<root />"
+
+        with patch.object(self.client, "_base_request", return_value=response) as base_mock, patch.object(
+            self.client,
+            "parse_total_load_document",
+            return_value={},
+        ) as parse_mock:
+            result = self.client.query_total_load_forecast(
+                "BE", datetime(2024, 10, 1), datetime(2024, 10, 2)
+            )
+
+        self.assertEqual(result, {})
+        params = base_mock.call_args.kwargs["params"]
+        self.assertEqual(params["documentType"], DOCUMENT_TYPE_TOTAL_LOAD)
+        self.assertEqual(params["processType"], PROCESS_TYPE_DAY_AHEAD)
+        self.assertNotIn("in_Domain", params)
+        self.assertEqual(params["out_Domain"], "10YBE----------2")
+        parse_mock.assert_called_once()
+
     def test_be_15M_avg(self):
-        with open("./datasets/BE_15M_avg.xml") as f:
+        with open(DATASET_DIR / "BE_15M_avg.xml") as f:
             data = f.read()
 
         self.maxDiff = None
@@ -224,7 +368,7 @@ class TestDocumentParsing(unittest.TestCase):
         )
 
     def test_be_exact4(self):
-        with open("./datasets/BE_15M_exact4.xml") as f:
+        with open(DATASET_DIR / "BE_15M_exact4.xml") as f:
             data = f.read()
 
         self.maxDiff = None
