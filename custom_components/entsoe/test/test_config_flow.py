@@ -1,0 +1,102 @@
+"""Tests for the ENTSO-e config flow template validation."""
+
+from __future__ import annotations
+
+import asyncio
+from types import SimpleNamespace
+
+from custom_components.entsoe.config_flow import (
+    EntsoeFlowHandler,
+    EntsoeOptionFlowHandler,
+)
+from custom_components.entsoe.const import (
+    AREA_INFO,
+    CALCULATION_MODE,
+    CONF_API_KEY,
+    CONF_AREA,
+    CONF_CALCULATION_MODE,
+    CONF_CURRENCY,
+    CONF_ENERGY_SCALE,
+    CONF_ENTITY_NAME,
+    CONF_MODIFYER,
+    CONF_VAT_VALUE,
+    DEFAULT_CURRENCY,
+    DEFAULT_ENERGY_SCALE,
+    DEFAULT_MODIFYER,
+)
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import TemplateError
+from homeassistant.helpers.template import Template
+
+
+def test_async_step_extra_rejects_template_without_current_price(monkeypatch):
+    """Templates raising during rendering should surface the invalid_template error."""
+
+    flow = EntsoeFlowHandler()
+    flow.hass = HomeAssistant()
+    flow.area = "DE"
+    flow.api_key = "token"
+    flow.name = "Test"
+
+    async def raise_template_error(self, *args, **kwargs):
+        raise TemplateError("undefined variable")
+
+    monkeypatch.setattr(Template, "async_render", raise_template_error, raising=False)
+
+    user_input = {
+        CONF_VAT_VALUE: AREA_INFO[flow.area]["VAT"],
+        CONF_MODIFYER: "{{ price_without_current_price }}",
+        CONF_CURRENCY: DEFAULT_CURRENCY,
+        CONF_ENERGY_SCALE: DEFAULT_ENERGY_SCALE,
+        CONF_ENTITY_NAME: flow.name,
+        CONF_CALCULATION_MODE: CALCULATION_MODE["rotation"],
+    }
+
+    result = asyncio.run(flow.async_step_extra(user_input))
+
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "invalid_template"
+
+
+def test_options_flow_rejects_non_numeric_template(monkeypatch):
+    """Non-numeric template output should surface the invalid_template error."""
+
+    options_flow = EntsoeOptionFlowHandler()
+    hass = HomeAssistant()
+    options_flow.hass = hass
+
+    config_entry = SimpleNamespace(
+        options={
+            CONF_API_KEY: "token",
+            CONF_AREA: "DE",
+            CONF_VAT_VALUE: 0,
+            CONF_MODIFYER: DEFAULT_MODIFYER,
+            CONF_ENTITY_NAME: "Test",
+            CONF_CURRENCY: DEFAULT_CURRENCY,
+            CONF_ENERGY_SCALE: DEFAULT_ENERGY_SCALE,
+            CONF_CALCULATION_MODE: CALCULATION_MODE["publish"],
+        }
+    )
+
+    hass.config_entries = SimpleNamespace(async_get_entry=lambda handler: config_entry)
+    options_flow.handler = "test"
+
+    async def render_non_numeric(self, *args, **kwargs):
+        return "not-a-number"
+
+    monkeypatch.setattr(Template, "async_render", render_non_numeric, raising=False)
+
+    user_input = {
+        CONF_API_KEY: "token",
+        CONF_AREA: "DE",
+        CONF_VAT_VALUE: 0,
+        CONF_MODIFYER: "{{ 'invalid' }}",
+        CONF_CURRENCY: DEFAULT_CURRENCY,
+        CONF_ENERGY_SCALE: DEFAULT_ENERGY_SCALE,
+        CONF_CALCULATION_MODE: CALCULATION_MODE["rotation"],
+    }
+
+    result = asyncio.run(options_flow.async_step_init(user_input))
+
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "invalid_template"
