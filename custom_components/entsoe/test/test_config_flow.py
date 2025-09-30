@@ -15,6 +15,8 @@ from custom_components.entsoe.const import (
     CALCULATION_MODE,
     CONF_API_KEY,
     CONF_AREA,
+    CONF_AGGREGATE_AREAS,
+    CONF_AGGREGATE_EUROPE,
     CONF_CALCULATION_MODE,
     CONF_CURRENCY,
     CONF_ENERGY_SCALE,
@@ -165,3 +167,63 @@ def test_options_flow_valid_template_passes_context(monkeypatch):
         captured["now"](None)
         == fixed_now.replace(minute=0, second=0, microsecond=0)
     )
+
+
+def test_options_flow_submits_prefilled_multi_line_template(monkeypatch):
+    """Submitting options with a stored multi-line template should pass validation unchanged."""
+
+    options_flow = EntsoeOptionFlowHandler()
+    hass = HomeAssistant()
+    options_flow.hass = hass
+
+    multi_line_template = (
+        "{% set adjustment = 0.5 %}\n{{ (current_price + adjustment)|round(2) }}"
+    )
+
+    config_entry = SimpleNamespace(
+        options={
+            CONF_API_KEY: "token",
+            CONF_AREA: "DE",
+            CONF_VAT_VALUE: 0,
+            CONF_MODIFYER: multi_line_template,
+            CONF_ENTITY_NAME: "Test",
+            CONF_CURRENCY: DEFAULT_CURRENCY,
+            CONF_ENERGY_SCALE: DEFAULT_ENERGY_SCALE,
+            CONF_CALCULATION_MODE: CALCULATION_MODE["publish"],
+            CONF_ENABLE_GENERATION: DEFAULT_ENABLE_GENERATION,
+            CONF_ENABLE_LOAD: DEFAULT_ENABLE_LOAD,
+            CONF_AGGREGATE_EUROPE: False,
+            CONF_AGGREGATE_AREAS: [],
+        }
+    )
+
+    hass.config_entries = SimpleNamespace(async_get_entry=lambda handler: config_entry)
+    options_flow.handler = "test"
+
+    captured_templates: list[str] = []
+
+    async def capture(self, *args, **kwargs):
+        captured_templates.append(self.template)
+        return "1.23"
+
+    monkeypatch.setattr(Template, "async_render", capture, raising=False)
+
+    user_input = {
+        CONF_API_KEY: "token",
+        CONF_AREA: "DE",
+        CONF_VAT_VALUE: 0,
+        CONF_MODIFYER: multi_line_template,
+        CONF_CURRENCY: DEFAULT_CURRENCY,
+        CONF_ENERGY_SCALE: DEFAULT_ENERGY_SCALE,
+        CONF_CALCULATION_MODE: CALCULATION_MODE["publish"],
+        CONF_ENABLE_GENERATION: DEFAULT_ENABLE_GENERATION,
+        CONF_ENABLE_LOAD: DEFAULT_ENABLE_LOAD,
+        CONF_AGGREGATE_EUROPE: False,
+        CONF_AGGREGATE_AREAS: [],
+    }
+
+    result = asyncio.run(options_flow.async_step_init(user_input))
+
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_MODIFYER] == multi_line_template
+    assert captured_templates == [multi_line_template]
