@@ -206,7 +206,7 @@ class EntsoeClient:
         params = {
             "documentType": DOCUMENT_TYPE_TOTAL_LOAD,
             "processType": PROCESS_TYPE_DAY_AHEAD,
-            "out_Domain": area.code,
+            "outBiddingZone_Domain": area.code,
         }
 
         response = self._base_request(params=params, start=start, end=end)

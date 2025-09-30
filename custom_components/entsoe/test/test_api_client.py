@@ -343,7 +343,8 @@ class TestDocumentParsing(unittest.TestCase):
         self.assertEqual(params["documentType"], DOCUMENT_TYPE_TOTAL_LOAD)
         self.assertEqual(params["processType"], PROCESS_TYPE_DAY_AHEAD)
         self.assertNotIn("in_Domain", params)
-        self.assertEqual(params["out_Domain"], "10YBE----------2")
+        self.assertNotIn("out_Domain", params)
+        self.assertEqual(params["outBiddingZone_Domain"], "10YBE----------2")
         parse_mock.assert_called_once()
 
     def test_be_15M_avg(self):
