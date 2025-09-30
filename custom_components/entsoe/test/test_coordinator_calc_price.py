@@ -10,7 +10,7 @@ if str(PACKAGE_ROOT) not in sys.path:
 
 from homeassistant.core import HomeAssistant
 
-from custom_components.entsoe.coordinator import EntsoeCoordinator
+from ..coordinator import EntsoeCoordinator
 
 
 def test_calc_price_without_fake_dt_supplies_context(monkeypatch):
