@@ -1,5 +1,8 @@
 {
   "config": {
+    "abort": {
+      "reconfigure_successful": "Configuratie succesvol bijgewerkt."
+    },
     "step": {
       "user": {
         "description": "Vul je ENTSO-e API-sleutel in en kies de biedzone.",

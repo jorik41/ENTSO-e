@@ -102,6 +102,7 @@ def install_hass_stubs() -> None:
         options: dict[str, Any]
 
     config_entries.ConfigEntry = ConfigEntry
+    config_entries.SOURCE_RECONFIGURE = "reconfigure"
 
     # ------------------------------------------------------------------
     # Constants
