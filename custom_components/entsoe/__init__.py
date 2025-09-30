@@ -1,8 +1,9 @@
-"""The ENTSO-e prices component."""
+"""The ENTSO-e data component."""
 
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 try:
     from homeassistant.config_entries import ConfigEntry
@@ -20,91 +21,40 @@ except ModuleNotFoundError:  # pragma: no cover - used only in unit tests
     from homeassistant.helpers.typing import ConfigType
 
 from .const import (
-    AREA_INFO,
-    CALCULATION_MODE,
     CONF_API_KEY,
     CONF_AREA,
-    CONF_ENERGY_SCALE,
-    CONF_CALCULATION_MODE,
     CONF_ENABLE_GENERATION,
     CONF_ENABLE_LOAD,
-    CONF_AGGREGATE_AREAS,
-    CONF_AGGREGATE_EUROPE,
-    CONF_MODIFYER,
-    CONF_VAT_VALUE,
-    DEFAULT_MODIFYER,
-    DEFAULT_ENERGY_SCALE,
     DEFAULT_ENABLE_GENERATION,
     DEFAULT_ENABLE_LOAD,
     DOMAIN,
 )
 from .coordinator import (
-    EntsoeAggregatePriceCoordinator,
-    EntsoeCoordinator,
     EntsoeGenerationCoordinator,
     EntsoeLoadCoordinator,
 )
-from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.SENSOR]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up ENTSO-e services."""
-
-    async_setup_services(hass)
+    """Set up the ENTSO-e integration."""
 
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up the ENTSO-e prices component from a config entry."""
+    """Set up the ENTSO-e data component from a config entry."""
 
-    # Initialise the coordinator and save it as domain-data
     api_key = entry.options[CONF_API_KEY]
     area = entry.options[CONF_AREA]
-    energy_scale = entry.options.get(CONF_ENERGY_SCALE, DEFAULT_ENERGY_SCALE)
-    modifyer = entry.options.get(CONF_MODIFYER, DEFAULT_MODIFYER)
-    vat = entry.options.get(CONF_VAT_VALUE, 0)
-    calculation_mode = entry.options.get(
-        CONF_CALCULATION_MODE, CALCULATION_MODE["default"]
-    )
     enable_generation = entry.options.get(
         CONF_ENABLE_GENERATION, DEFAULT_ENABLE_GENERATION
     )
     enable_load = entry.options.get(CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD)
-    aggregate_europe = entry.options.get(CONF_AGGREGATE_EUROPE, False)
-    aggregate_areas = entry.options.get(CONF_AGGREGATE_AREAS, [])
-    if aggregate_europe:
-        aggregate_areas = sorted(AREA_INFO.keys())
-    else:
-        aggregate_areas = [
-            area for area in aggregate_areas if area in AREA_INFO
-        ]
-    price_coordinator = EntsoeCoordinator(
-        hass,
-        api_key=api_key,
-        area=area,
-        energy_scale=energy_scale,
-        modifyer=modifyer,
-        calculation_mode=calculation_mode,
-        VAT=vat,
-    )
 
-    data = {"price": price_coordinator}
-
-    if aggregate_areas:
-        aggregate_coordinator = EntsoeAggregatePriceCoordinator(
-            hass,
-            api_key=api_key,
-            areas=aggregate_areas,
-            energy_scale=energy_scale,
-            modifyer=modifyer,
-            calculation_mode=calculation_mode,
-            VAT=vat,
-        )
-        data["aggregate_price"] = aggregate_coordinator
+    data: dict[str, Any] = {}
 
     if enable_generation:
         generation_coordinator = EntsoeGenerationCoordinator(
@@ -124,17 +74,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = data
 
-    # Fetch initial data, so we have data when entities subscribe and set up the platform
-    await price_coordinator.async_config_entry_first_refresh()
-
-    if aggregate_areas:
-        await data["aggregate_price"].async_config_entry_first_refresh()
-
     if enable_generation:
-        await data["generation"].async_config_entry_first_refresh()
+        await generation_coordinator.async_config_entry_first_refresh()
 
     if enable_load:
-        await data["load"].async_config_entry_first_refresh()
+        await load_coordinator.async_config_entry_first_refresh()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 

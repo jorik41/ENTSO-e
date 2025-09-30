@@ -2,80 +2,28 @@
   "config": {
     "step": {
       "user": {
-        "description": "Please add the ENTSO-e Transparency Platform API key and area",
+        "description": "Enter your ENTSO-e API key and select the bidding zone.",
         "data": {
           "api_key": "Your API Key",
           "area": "Area*",
-          "advanced_options": "I want to set VAT, template and calculation method (next step)",
-          "modifyer": "Price Modifyer Template (Optional)",
-          "currency": "Currency of the modified price (Optional)",
-          "energy_scale": "Energy scale (Optional)",
-          "name": "Name (Optional)"
-        }
-      },
-      "extra": {
-        "data": {
-          "VAT_value": "VAT tariff (example: for 21% VAT enter 0.21)",
-          "modifyer": "Price Modifyer Template (Optional)",
-          "currency": "Currency of the modified price (Optional)",
-          "energy_scale": "Energy scale (Optional)",
           "enable_generation": "Enable generation mix sensors",
           "enable_load": "Enable load forecast sensors"
         }
       }
     },
     "error": {
-      "invalid_template": "Invalid template, check https://github.com/JaccoR/hass-entso-e",
-      "missing_current_price": "'current_price' is missing from the template, check https://github.com/JaccoR/hass-entso-e",
-      "already_configured": "Integration instance with the same name already exists"
+      "already_configured": "An integration instance for this area already exists."
     }
   },
   "options": {
     "step": {
       "init": {
-        "description": "Please add the ENTSO-e Transparency Platform API key and area",
+        "description": "Update the ENTSO-e Data configuration.",
         "data": {
           "api_key": "Your API Key",
           "area": "Area*",
-          "modifyer": "Price Modifyer Template (Optional)",
-          "currency": "Currency of the modified price (Optional)",
-          "energy_scale": "Energy scale (Optional)",
-          "VAT_value": "VAT tariff (example: for 21% VAT enter 0.21)",
-          "name": "Name (Optional)",
           "enable_generation": "Enable generation mix sensors",
           "enable_load": "Enable load forecast sensors"
-        }
-      }
-    },
-    "error": {
-      "invalid_template": "Invalid Template, Check https://github.com/JaccoR/hass-entso-e",
-      "missing_current_price": "'current_price' is missing from the template, check https://github.com/JaccoR/hass-entso-e",
-      "already_configured": "Integration instance with the same name already exists"
-    }
-  },
-  "services": {
-    "get_energy_prices": {
-      "name": "Get energy prices",
-      "description": "Request prices for a specified range from entso-e",
-      "fields": {
-        "config_entry": {
-          "name": "Config Entry",
-          "description": "The config entry to use for this service."
-        },
-        "start": {
-          "name": "Start",
-          "description": "Specifies the date and time from which to retrieve prices. Defaults to today if omitted."
-        },
-        "end": {
-          "name": "End",
-          "description": "Specifies the date and time until which to retrieve prices. Defaults to today if omitted."
-        }
-      },
-      "response": {
-        "error": {
-          "invalid_date": "The provided date \"{date}\" is invalid.",
-          "invalid_config_entry": "Config entry \"{config_entry}\" could not be found.",
-          "unloaded_config_entry": "Config entry \"{config_entry}\" is not loaded."
         }
       }
     }

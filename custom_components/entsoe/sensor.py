@@ -1,4 +1,4 @@
-"""ENTSO-e sensors for prices, generation, and load forecasts."""
+"""ENTSO-e sensors for generation and load forecasts."""
 
 from __future__ import annotations
 
@@ -6,16 +6,14 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any
 
 from homeassistant.components.sensor import (
     RestoreSensor,
-    SensorDeviceClass,
     SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE
 from homeassistant.core import HassJob, HomeAssistant
 from homeassistant.helpers import event
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
@@ -28,19 +26,10 @@ from .api_client import PSR_CATEGORY_MAPPING
 from .const import (
     AREA_INFO,
     ATTRIBUTION,
-    CONF_AGGREGATE_AREAS,
-    CONF_AGGREGATE_EUROPE,
     CONF_AREA,
-    CONF_CURRENCY,
-    CONF_ENERGY_SCALE,
-    CONF_ENTITY_NAME,
-    DEFAULT_CURRENCY,
-    DEFAULT_ENERGY_SCALE,
     DOMAIN,
 )
 from .coordinator import (
-    EntsoeAggregatePriceCoordinator,
-    EntsoeCoordinator,
     EntsoeGenerationCoordinator,
     EntsoeLoadCoordinator,
 )
@@ -49,20 +38,10 @@ _LOGGER = logging.getLogger(__name__)
 
 GENERATION_UNIT = "MW"
 LOAD_UNIT = "MW"
-PRICE_DEVICE_SUFFIX = "price"
 GENERATION_DEVICE_SUFFIX = "generation"
 LOAD_DEVICE_SUFFIX = "load"
 TOTAL_GENERATION_KEY = "total_generation"
 DEFAULT_GENERATION_CATEGORIES = sorted(set(PSR_CATEGORY_MAPPING.values()))
-
-
-@dataclass
-class EntsoePriceEntityDescription(SensorEntityDescription):
-    """Describes ENTSO-e price sensor entity."""
-
-    value_fn: Callable[[EntsoeCoordinator], StateType] | None = None
-    attrs_fn: Callable[[EntsoeCoordinator], dict[str, Any]] | None = None
-
 
 @dataclass
 class EntsoeGenerationEntityDescription(SensorEntityDescription):
@@ -79,101 +58,6 @@ class EntsoeLoadEntityDescription(SensorEntityDescription):
 
     value_fn: Callable[[EntsoeLoadCoordinator], StateType] | None = None
     attrs_fn: Callable[[EntsoeLoadCoordinator], dict[str, Any]] | None = None
-
-
-def price_sensor_descriptions(
-    currency: str, energy_scale: str
-) -> tuple[EntsoePriceEntityDescription, ...]:
-    """Construct price sensor descriptions."""
-
-    def _avg_attrs(coordinator: EntsoeCoordinator) -> dict[str, Any]:
-        return {
-            "prices_today": coordinator.get_prices_today(),
-            "prices_tomorrow": coordinator.get_prices_tomorrow(),
-            "prices": coordinator.get_prices(),
-        }
-
-    return (
-        EntsoePriceEntityDescription(
-            key="current_price",
-            name="Current electricity market price",
-            native_unit_of_measurement=f"{currency}/{energy_scale}",
-            state_class=SensorStateClass.MEASUREMENT,
-            icon="mdi:currency-eur",
-            suggested_display_precision=3,
-            value_fn=lambda coordinator: coordinator.get_current_hourprice(),
-        ),
-        EntsoePriceEntityDescription(
-            key="next_hour_price",
-            name="Next hour electricity market price",
-            native_unit_of_measurement=f"{currency}/{energy_scale}",
-            state_class=SensorStateClass.MEASUREMENT,
-            icon="mdi:currency-eur",
-            suggested_display_precision=3,
-            value_fn=lambda coordinator: coordinator.get_next_hourprice(),
-        ),
-        EntsoePriceEntityDescription(
-            key="min_price",
-            name="Lowest energy price",
-            native_unit_of_measurement=f"{currency}/{energy_scale}",
-            state_class=SensorStateClass.MEASUREMENT,
-            icon="mdi:currency-eur",
-            suggested_display_precision=3,
-            value_fn=lambda coordinator: coordinator.get_min_price(),
-        ),
-        EntsoePriceEntityDescription(
-            key="max_price",
-            name="Highest energy price",
-            native_unit_of_measurement=f"{currency}/{energy_scale}",
-            state_class=SensorStateClass.MEASUREMENT,
-            icon="mdi:currency-eur",
-            suggested_display_precision=3,
-            value_fn=lambda coordinator: coordinator.get_max_price(),
-        ),
-        EntsoePriceEntityDescription(
-            key="avg_price",
-            name="Average electricity price",
-            native_unit_of_measurement=f"{currency}/{energy_scale}",
-            state_class=SensorStateClass.MEASUREMENT,
-            icon="mdi:currency-eur",
-            suggested_display_precision=3,
-            value_fn=lambda coordinator: coordinator.get_avg_price(),
-            attrs_fn=_avg_attrs,
-        ),
-        EntsoePriceEntityDescription(
-            key="percentage_of_max",
-            name="Current percentage of highest electricity price",
-            native_unit_of_measurement=f"{PERCENTAGE}",
-            icon="mdi:percent",
-            suggested_display_precision=1,
-            state_class=SensorStateClass.MEASUREMENT,
-            value_fn=lambda coordinator: coordinator.get_percentage_of_max(),
-        ),
-        EntsoePriceEntityDescription(
-            key="percentage_of_range",
-            name="Current percentage in electricity price range",
-            native_unit_of_measurement=f"{PERCENTAGE}",
-            icon="mdi:percent",
-            suggested_display_precision=1,
-            state_class=SensorStateClass.MEASUREMENT,
-            value_fn=lambda coordinator: coordinator.get_percentage_of_range(),
-        ),
-        EntsoePriceEntityDescription(
-            key="highest_price_time_today",
-            name="Time of highest price",
-            device_class=SensorDeviceClass.TIMESTAMP,
-            icon="mdi:clock",
-            value_fn=lambda coordinator: coordinator.get_max_time(),
-        ),
-        EntsoePriceEntityDescription(
-            key="lowest_price_time_today",
-            name="Time of lowest price",
-            device_class=SensorDeviceClass.TIMESTAMP,
-            icon="mdi:clock",
-            value_fn=lambda coordinator: coordinator.get_min_time(),
-        ),
-    )
-
 
 def generation_sensor_descriptions(
     coordinator: EntsoeGenerationCoordinator,
@@ -297,23 +181,9 @@ async def async_setup_entry(
 ) -> None:
     """Set up ENTSO-e sensor entries."""
 
-    coordinators = hass.data[DOMAIN][config_entry.entry_id]
+    coordinators = hass.data.get(DOMAIN, {}).get(config_entry.entry_id, {})
 
     entities: list[RestoreSensor] = []
-    entities.extend(
-        _create_price_sensors(
-            config_entry,
-            coordinators["price"],
-        )
-    )
-
-    if aggregate_coordinator := coordinators.get("aggregate_price"):
-        entities.extend(
-            _create_aggregate_sensors(
-                config_entry,
-                aggregate_coordinator,
-            )
-        )
 
     if generation_coordinator := coordinators.get("generation"):
         entities.extend(
@@ -331,42 +201,8 @@ async def async_setup_entry(
             )
         )
 
-    async_add_entities(entities, True)
-
-
-def _create_price_sensors(
-    config_entry: ConfigEntry, coordinator: EntsoeCoordinator
-) -> list[RestoreSensor]:
-    name = config_entry.options.get(CONF_ENTITY_NAME, "")
-    currency = config_entry.options.get(CONF_CURRENCY, DEFAULT_CURRENCY)
-    energy_scale = config_entry.options.get(CONF_ENERGY_SCALE, DEFAULT_ENERGY_SCALE)
-
-    return [
-        EntsoePriceSensor(coordinator, description, config_entry, name)
-        for description in price_sensor_descriptions(currency, energy_scale)
-    ]
-
-
-def _create_aggregate_sensors(
-    config_entry: ConfigEntry, coordinator: EntsoeAggregatePriceCoordinator
-) -> list[RestoreSensor]:
-    name = config_entry.options.get(CONF_ENTITY_NAME, "")
-    currency = config_entry.options.get(CONF_CURRENCY, DEFAULT_CURRENCY)
-    energy_scale = config_entry.options.get(CONF_ENERGY_SCALE, DEFAULT_ENERGY_SCALE)
-    aggregate_europe = config_entry.options.get(CONF_AGGREGATE_EUROPE, False)
-
-    return [
-        EntsoeAggregatedPriceSensor(
-            coordinator,
-            config_entry,
-            name,
-            currency,
-            energy_scale,
-            aggregate_europe,
-        )
-    ]
-
-
+    if entities:
+        async_add_entities(entities, True)
 def _create_generation_sensors(
     config_entry: ConfigEntry,
     coordinator: EntsoeGenerationCoordinator,
@@ -438,147 +274,6 @@ class _HourlyCoordinatorSensor(CoordinatorEntity, RestoreSensor):
         super()._handle_coordinator_update()
         if self.hass.is_running:
             self.hass.async_create_task(self.async_update())
-
-
-class EntsoePriceSensor(_HourlyCoordinatorSensor):
-    """Representation of an ENTSO-e price sensor."""
-
-    entity_description: EntsoePriceEntityDescription
-
-    def __init__(
-        self,
-        coordinator: EntsoeCoordinator,
-        description: EntsoePriceEntityDescription,
-        config_entry: ConfigEntry,
-        name: str,
-    ) -> None:
-        super().__init__(coordinator)
-        self.entity_description = description
-        self._config_entry = config_entry
-        self._name_suffix = name
-
-        if name:
-            self.entity_id = f"{DOMAIN}.{name}_{description.name}"
-            self._attr_unique_id = (
-                f"entsoe.{config_entry.entry_id}.{PRICE_DEVICE_SUFFIX}.{name}.{description.key}"
-            )
-            self._attr_name = f"{description.name} ({name})"
-        else:
-            self.entity_id = f"{DOMAIN}.{description.name}"
-            self._attr_unique_id = (
-                f"entsoe.{config_entry.entry_id}.{PRICE_DEVICE_SUFFIX}.{description.key}"
-            )
-            self._attr_name = description.name
-
-        self._attr_icon = description.icon
-        self._attr_suggested_display_precision = (
-            description.suggested_display_precision
-            if description.suggested_display_precision is not None
-            else 2
-        )
-        device_name = "entso-e" + ((f" ({name})") if name else "")
-        self._attr_device_info = DeviceInfo(
-            entry_type=DeviceEntryType.SERVICE,
-            identifiers={(DOMAIN, config_entry.entry_id)},
-            manufacturer="entso-e",
-            name=device_name,
-        )
-
-    async def _async_handle_coordinator_update(self) -> None:
-        if (
-            self.coordinator.data is None
-            or not self.coordinator.today_data_available()
-        ):
-            raise RuntimeError("No valid data for today available.")
-
-        self.coordinator.sync_calculator()
-        if self.entity_description.value_fn is None:
-            raise RuntimeError("Missing value function")
-
-        value: Any = self.entity_description.value_fn(self.coordinator)
-        self._attr_native_value = value
-
-        if self.entity_description.attrs_fn is not None:
-            try:
-                self._attr_extra_state_attributes = self.entity_description.attrs_fn(
-                    self.coordinator
-                )
-            except Exception as exc:  # pragma: no cover - defensive safeguard
-                _LOGGER.warning(
-                    "Unable to update attributes for '%s': %s",
-                    self.entity_id,
-                    exc,
-                )
-
-
-class EntsoeAggregatedPriceSensor(_HourlyCoordinatorSensor):
-    """Representation of an aggregated ENTSO-e price sensor."""
-
-    def __init__(
-        self,
-        coordinator: EntsoeAggregatePriceCoordinator,
-        config_entry: ConfigEntry,
-        name: str,
-        currency: str,
-        energy_scale: str,
-        aggregate_europe: bool,
-    ) -> None:
-        super().__init__(coordinator)
-        base_name = "Aggregated electricity market price"
-        if name:
-            slug = name.lower().replace(" ", "_")
-            self.entity_id = f"{DOMAIN}.{slug}_aggregated_price"
-            self._attr_unique_id = (
-                f"entsoe.{config_entry.entry_id}.aggregate_price.{slug}"
-            )
-            self._attr_name = f"{base_name} ({name})"
-        else:
-            self.entity_id = f"{DOMAIN}.aggregated_price"
-            self._attr_unique_id = (
-                f"entsoe.{config_entry.entry_id}.aggregate_price"
-            )
-            self._attr_name = base_name
-        self._attr_icon = "mdi:chart-multiple"
-        self._attr_native_unit_of_measurement = f"{currency}/{energy_scale}"
-        self._attr_suggested_display_precision = 3
-        self._aggregate_europe = aggregate_europe
-        device_name = "entso-e" + ((f" ({name})") if name else "")
-        self._attr_device_info = DeviceInfo(
-            entry_type=DeviceEntryType.SERVICE,
-            identifiers={(DOMAIN, config_entry.entry_id)},
-            manufacturer="entso-e",
-            name=device_name,
-        )
-
-    @property
-    def available(self) -> bool:
-        return self._last_update_success and super().available
-
-    async def _async_handle_coordinator_update(self) -> None:
-        coordinator = cast(EntsoeAggregatePriceCoordinator, self.coordinator)
-
-        if (
-            coordinator.data is None
-            or not coordinator.today_data_available()
-        ):
-            raise RuntimeError("No valid aggregated data for today available.")
-
-        coordinator.sync_calculator()
-        self._attr_native_value = coordinator.get_current_hourprice()
-
-        selected_area_keys = coordinator.selected_areas()
-        selected_area_names = [
-            AREA_INFO.get(area, {}).get("name", area) for area in selected_area_keys
-        ]
-
-        self._attr_extra_state_attributes = {
-            "prices_today": coordinator.get_prices_today(),
-            "prices_tomorrow": coordinator.get_prices_tomorrow(),
-            "prices": coordinator.get_prices(),
-            CONF_AGGREGATE_AREAS: selected_area_keys,
-            "selected_area_names": selected_area_names,
-            CONF_AGGREGATE_EUROPE: self._aggregate_europe,
-        }
 
 
 class EntsoeGenerationSensor(_HourlyCoordinatorSensor):

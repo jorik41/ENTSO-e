@@ -1,39 +1,15 @@
-from homeassistant.const import CURRENCY_EURO
-
 ATTRIBUTION = "Data provided by ENTSO-e Transparency Platform"
 DOMAIN = "entsoe"
 UNIQUE_ID = f"{DOMAIN}_component"
-COMPONENT_TITLE = "ENTSO-e Transparency Platform"
+COMPONENT_TITLE = "ENTSO-e Data"
 
 CONF_API_KEY = "api_key"
-CONF_ENTITY_NAME = "name"
 CONF_AREA = "area"
-CONF_AGGREGATE_AREAS = "aggregate_areas"
-CONF_AGGREGATE_EUROPE = "aggregate_europe"
-CONF_MODIFYER = "modifyer"
-CONF_CURRENCY = "currency"
-CONF_ENERGY_SCALE = "energy_scale"
-CONF_ADVANCED_OPTIONS = "advanced_options"
-CONF_CALCULATION_MODE = "calculation_mode"
-CONF_VAT_VALUE = "VAT_value"
 CONF_ENABLE_GENERATION = "enable_generation"
 CONF_ENABLE_LOAD = "enable_load"
 
-DEFAULT_MODIFYER = "{{current_price}}"
-DEFAULT_CURRENCY = CURRENCY_EURO
-DEFAULT_ENERGY_SCALE = "kWh"
 DEFAULT_ENABLE_GENERATION = True
 DEFAULT_ENABLE_LOAD = True
-
-# default is only for internal use / backwards compatibility
-CALCULATION_MODE = {
-    "default": "publish",
-    "rotation": "rotation",
-    "sliding": "sliding",
-    "publish": "publish",
-}
-
-ENERGY_SCALES = { "kWh": 1000, "MWh": 1 }
 
 # Commented ones are not working at entsoe
 AREA_INFO = {
