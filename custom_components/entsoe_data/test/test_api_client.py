@@ -355,6 +355,14 @@ class TestDocumentParsing(unittest.TestCase):
         self.assertEqual(params["outBiddingZone_Domain"], "10YBE----------2")
         parse_mock.assert_called_once()
 
+    def test_area_from_identifier_accepts_eic_code(self):
+        area = Area.from_identifier("10Y1001A1001A876")
+
+        self.assertEqual(area, Area["TOTAL_EUROPE"])
+
+    def test_area_has_code_accepts_eic_code(self):
+        self.assertTrue(Area.has_code("10Y1001A1001A876"))
+
     def test_be_15M_avg(self):
         with open(DATASET_DIR / "BE_15M_avg.xml") as f:
             data = f.read()
