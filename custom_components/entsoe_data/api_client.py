@@ -517,6 +517,11 @@ class Area(enum.Enum):
         "CWE Region",
         "Europe/Brussels",
     )
+    TOTAL_EUROPE = (
+        "10Y1001A1001A876",
+        "Total Europe",
+        "Europe/Brussels",
+    )
     CY = (
         "10YCY-1001A0003J",
         "Cyprus, Cyprus TSO BZ / CA / MBA",

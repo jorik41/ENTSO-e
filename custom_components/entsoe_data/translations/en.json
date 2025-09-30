@@ -10,7 +10,9 @@
           "api_key": "Your API Key",
           "area": "Area*",
           "enable_generation": "Enable generation mix sensors",
-          "enable_load": "Enable load forecast sensors"
+          "enable_generation_total_europe": "Enable Total Europe generation sensors",
+          "enable_load": "Enable load forecast sensors",
+          "enable_load_total_europe": "Enable Total Europe load sensors"
         }
       }
     },
@@ -26,7 +28,9 @@
           "api_key": "Your API Key",
           "area": "Area*",
           "enable_generation": "Enable generation mix sensors",
-          "enable_load": "Enable load forecast sensors"
+          "enable_generation_total_europe": "Enable Total Europe generation sensors",
+          "enable_load": "Enable load forecast sensors",
+          "enable_load_total_europe": "Enable Total Europe load sensors"
         }
       }
     }

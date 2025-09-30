@@ -19,9 +19,13 @@ from .const import (
     CONF_API_KEY,
     CONF_AREA,
     CONF_ENABLE_GENERATION,
+    CONF_ENABLE_GENERATION_TOTAL_EUROPE,
     CONF_ENABLE_LOAD,
+    CONF_ENABLE_LOAD_TOTAL_EUROPE,
     DEFAULT_ENABLE_GENERATION,
+    DEFAULT_ENABLE_GENERATION_TOTAL_EUROPE,
     DEFAULT_ENABLE_LOAD,
+    DEFAULT_ENABLE_LOAD_TOTAL_EUROPE,
     DOMAIN,
     UNIQUE_ID,
 )
@@ -59,7 +63,15 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
             CONF_ENABLE_GENERATION: current_options.get(
                 CONF_ENABLE_GENERATION, DEFAULT_ENABLE_GENERATION
             ),
+            CONF_ENABLE_GENERATION_TOTAL_EUROPE: current_options.get(
+                CONF_ENABLE_GENERATION_TOTAL_EUROPE,
+                DEFAULT_ENABLE_GENERATION_TOTAL_EUROPE,
+            ),
             CONF_ENABLE_LOAD: current_options.get(CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD),
+            CONF_ENABLE_LOAD_TOTAL_EUROPE: current_options.get(
+                CONF_ENABLE_LOAD_TOTAL_EUROPE,
+                DEFAULT_ENABLE_LOAD_TOTAL_EUROPE,
+            ),
         }
 
         if user_input is not None:
@@ -89,8 +101,16 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                     CONF_ENABLE_GENERATION: user_input.get(
                         CONF_ENABLE_GENERATION, DEFAULT_ENABLE_GENERATION
                     ),
+                    CONF_ENABLE_GENERATION_TOTAL_EUROPE: user_input.get(
+                        CONF_ENABLE_GENERATION_TOTAL_EUROPE,
+                        DEFAULT_ENABLE_GENERATION_TOTAL_EUROPE,
+                    ),
                     CONF_ENABLE_LOAD: user_input.get(
                         CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD
+                    ),
+                    CONF_ENABLE_LOAD_TOTAL_EUROPE: user_input.get(
+                        CONF_ENABLE_LOAD_TOTAL_EUROPE,
+                        DEFAULT_ENABLE_LOAD_TOTAL_EUROPE,
                     ),
                 }
 
@@ -142,7 +162,15 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                         default=form_values[CONF_ENABLE_GENERATION],
                     ): bool,
                     vol.Optional(
+                        CONF_ENABLE_GENERATION_TOTAL_EUROPE,
+                        default=form_values[CONF_ENABLE_GENERATION_TOTAL_EUROPE],
+                    ): bool,
+                    vol.Optional(
                         CONF_ENABLE_LOAD, default=form_values[CONF_ENABLE_LOAD]
+                    ): bool,
+                    vol.Optional(
+                        CONF_ENABLE_LOAD_TOTAL_EUROPE,
+                        default=form_values[CONF_ENABLE_LOAD_TOTAL_EUROPE],
                     ): bool,
                 }
             ),
@@ -192,8 +220,22 @@ class EntsoeOptionFlowHandler(OptionsFlow):
                         ),
                     ): bool,
                     vol.Optional(
+                        CONF_ENABLE_GENERATION_TOTAL_EUROPE,
+                        default=options.get(
+                            CONF_ENABLE_GENERATION_TOTAL_EUROPE,
+                            DEFAULT_ENABLE_GENERATION_TOTAL_EUROPE,
+                        ),
+                    ): bool,
+                    vol.Optional(
                         CONF_ENABLE_LOAD,
                         default=options.get(CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD),
+                    ): bool,
+                    vol.Optional(
+                        CONF_ENABLE_LOAD_TOTAL_EUROPE,
+                        default=options.get(
+                            CONF_ENABLE_LOAD_TOTAL_EUROPE,
+                            DEFAULT_ENABLE_LOAD_TOTAL_EUROPE,
+                        ),
                     ): bool,
                 }
             ),

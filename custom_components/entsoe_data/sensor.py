@@ -28,6 +28,7 @@ from .const import (
     ATTRIBUTION,
     CONF_AREA,
     DOMAIN,
+    TOTAL_EUROPE_AREA,
 )
 from .coordinator import (
     EntsoeGenerationCoordinator,
@@ -40,6 +41,9 @@ GENERATION_UNIT = "MW"
 LOAD_UNIT = "MW"
 GENERATION_DEVICE_SUFFIX = "generation"
 LOAD_DEVICE_SUFFIX = "load"
+TOTAL_EUROPE_CONTEXT = "total_europe"
+GENERATION_EUROPE_DEVICE_SUFFIX = f"{TOTAL_EUROPE_CONTEXT}_{GENERATION_DEVICE_SUFFIX}"
+LOAD_EUROPE_DEVICE_SUFFIX = f"{TOTAL_EUROPE_CONTEXT}_{LOAD_DEVICE_SUFFIX}"
 TOTAL_GENERATION_KEY = "total_generation"
 DEFAULT_GENERATION_CATEGORIES = sorted(set(PSR_CATEGORY_MAPPING.values()))
 
@@ -50,6 +54,7 @@ class EntsoeGenerationEntityDescription(SensorEntityDescription):
     category: str = ""
     value_fn: Callable[[EntsoeGenerationCoordinator], StateType] | None = None
     attrs_fn: Callable[[EntsoeGenerationCoordinator], dict[str, Any]] | None = None
+    device_suffix: str = GENERATION_DEVICE_SUFFIX
 
 
 @dataclass
@@ -58,6 +63,7 @@ class EntsoeLoadEntityDescription(SensorEntityDescription):
 
     value_fn: Callable[[EntsoeLoadCoordinator], StateType] | None = None
     attrs_fn: Callable[[EntsoeLoadCoordinator], dict[str, Any]] | None = None
+    device_suffix: str = LOAD_DEVICE_SUFFIX
 
 def generation_sensor_descriptions(
     coordinator: EntsoeGenerationCoordinator,
@@ -85,6 +91,28 @@ def generation_sensor_descriptions(
             )
         )
     return descriptions
+
+
+def generation_total_europe_descriptions(
+    coordinator: EntsoeGenerationCoordinator,
+) -> list[EntsoeGenerationEntityDescription]:
+    """Create generation sensor descriptions for Total Europe totals."""
+
+    return [
+        EntsoeGenerationEntityDescription(
+            key=f"{TOTAL_EUROPE_CONTEXT}_generation_total",
+            name="Total generation output",
+            native_unit_of_measurement=GENERATION_UNIT,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:factory",
+            category=TOTAL_GENERATION_KEY,
+            value_fn=lambda coordinator: coordinator.current_value(TOTAL_GENERATION_KEY),
+            attrs_fn=lambda coordinator: _generation_attrs(
+                coordinator, TOTAL_GENERATION_KEY
+            ),
+            device_suffix=GENERATION_EUROPE_DEVICE_SUFFIX,
+        )
+    ]
 
 
 def _generation_attrs(
@@ -157,6 +185,24 @@ def load_sensor_descriptions() -> tuple[EntsoeLoadEntityDescription, ...]:
     )
 
 
+def load_total_europe_descriptions() -> tuple[EntsoeLoadEntityDescription, ...]:
+    """Construct load forecast sensor descriptions for Total Europe totals."""
+
+    return tuple(
+        EntsoeLoadEntityDescription(
+            key=f"{TOTAL_EUROPE_CONTEXT}_{description.key}",
+            name=description.name,
+            native_unit_of_measurement=description.native_unit_of_measurement,
+            state_class=description.state_class,
+            icon=description.icon,
+            value_fn=description.value_fn,
+            attrs_fn=description.attrs_fn,
+            device_suffix=LOAD_EUROPE_DEVICE_SUFFIX,
+        )
+        for description in load_sensor_descriptions()
+    )
+
+
 def _load_attrs(
     coordinator: EntsoeLoadCoordinator, include_next: bool
 ) -> dict[str, Any]:
@@ -193,6 +239,18 @@ async def async_setup_entry(
             )
         )
 
+    if generation_europe_coordinator := coordinators.get("generation_europe"):
+        entities.extend(
+            _create_generation_sensors(
+                config_entry,
+                generation_europe_coordinator,
+                area_name=AREA_INFO.get(TOTAL_EUROPE_AREA, {}).get("name", ""),
+                descriptions=generation_total_europe_descriptions(
+                    generation_europe_coordinator
+                ),
+            )
+        )
+
     if load_coordinator := coordinators.get("load"):
         entities.extend(
             _create_load_sensors(
@@ -201,30 +259,69 @@ async def async_setup_entry(
             )
         )
 
+    if load_europe_coordinator := coordinators.get("load_europe"):
+        entities.extend(
+            _create_load_sensors(
+                config_entry,
+                load_europe_coordinator,
+                area_name=AREA_INFO.get(TOTAL_EUROPE_AREA, {}).get("name", ""),
+                descriptions=load_total_europe_descriptions(),
+            )
+        )
+
     if entities:
         async_add_entities(entities, True)
 def _create_generation_sensors(
     config_entry: ConfigEntry,
     coordinator: EntsoeGenerationCoordinator,
+    *,
+    area_name: str | None = None,
+    descriptions: list[EntsoeGenerationEntityDescription] | None = None,
 ) -> list[RestoreSensor]:
-    area = config_entry.options.get(CONF_AREA)
-    area_name = AREA_INFO.get(area, {}).get("name", area or "")
+    area_key = config_entry.options.get(CONF_AREA)
+    resolved_area_name = (
+        area_name
+        if area_name is not None
+        else AREA_INFO.get(area_key, {}).get("name", area_key or "")
+    )
+
+    selected_descriptions = descriptions or generation_sensor_descriptions(coordinator)
 
     return [
-        EntsoeGenerationSensor(coordinator, description, config_entry, area_name)
-        for description in generation_sensor_descriptions(coordinator)
+        EntsoeGenerationSensor(
+            coordinator,
+            description,
+            config_entry,
+            resolved_area_name,
+        )
+        for description in selected_descriptions
     ]
 
 
 def _create_load_sensors(
-    config_entry: ConfigEntry, coordinator: EntsoeLoadCoordinator
+    config_entry: ConfigEntry,
+    coordinator: EntsoeLoadCoordinator,
+    *,
+    area_name: str | None = None,
+    descriptions: tuple[EntsoeLoadEntityDescription, ...] | None = None,
 ) -> list[RestoreSensor]:
-    area = config_entry.options.get(CONF_AREA)
-    area_name = AREA_INFO.get(area, {}).get("name", area or "")
+    area_key = config_entry.options.get(CONF_AREA)
+    resolved_area_name = (
+        area_name
+        if area_name is not None
+        else AREA_INFO.get(area_key, {}).get("name", area_key or "")
+    )
+
+    selected_descriptions = descriptions or load_sensor_descriptions()
 
     return [
-        EntsoeLoadSensor(coordinator, description, config_entry, area_name)
-        for description in load_sensor_descriptions()
+        EntsoeLoadSensor(
+            coordinator,
+            description,
+            config_entry,
+            resolved_area_name,
+        )
+        for description in selected_descriptions
     ]
 
 
@@ -290,8 +387,9 @@ class EntsoeGenerationSensor(_HourlyCoordinatorSensor):
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
+        device_suffix = description.device_suffix or GENERATION_DEVICE_SUFFIX
         self._attr_unique_id = (
-            f"entsoe_data.{config_entry.entry_id}.{GENERATION_DEVICE_SUFFIX}.{description.key}"
+            f"entsoe_data.{config_entry.entry_id}.{device_suffix}.{description.key}"
         )
         self._attr_name = (
             f"{description.name} ({area_name})" if area_name else description.name
@@ -300,7 +398,7 @@ class EntsoeGenerationSensor(_HourlyCoordinatorSensor):
         self.entity_id = f"{DOMAIN}.{description.key}"
         self._attr_device_info = DeviceInfo(
             entry_type=DeviceEntryType.SERVICE,
-            identifiers={(DOMAIN, f"{config_entry.entry_id}_{GENERATION_DEVICE_SUFFIX}")},
+            identifiers={(DOMAIN, f"{config_entry.entry_id}_{device_suffix}")},
             manufacturer="entso-e",
             name="ENTSO-e Generation"
             + ((f" ({area_name})") if area_name else ""),
@@ -336,8 +434,9 @@ class EntsoeLoadSensor(_HourlyCoordinatorSensor):
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
+        device_suffix = description.device_suffix or LOAD_DEVICE_SUFFIX
         self._attr_unique_id = (
-            f"entsoe_data.{config_entry.entry_id}.{LOAD_DEVICE_SUFFIX}.{description.key}"
+            f"entsoe_data.{config_entry.entry_id}.{device_suffix}.{description.key}"
         )
         self._attr_name = (
             f"{description.name} ({area_name})" if area_name else description.name
@@ -346,7 +445,7 @@ class EntsoeLoadSensor(_HourlyCoordinatorSensor):
         self.entity_id = f"{DOMAIN}.{description.key}"
         self._attr_device_info = DeviceInfo(
             entry_type=DeviceEntryType.SERVICE,
-            identifiers={(DOMAIN, f"{config_entry.entry_id}_{LOAD_DEVICE_SUFFIX}")},
+            identifiers={(DOMAIN, f"{config_entry.entry_id}_{device_suffix}")},
             manufacturer="entso-e",
             name="ENTSO-e Load forecast"
             + ((f" ({area_name})") if area_name else ""),
