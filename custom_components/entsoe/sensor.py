@@ -476,12 +476,12 @@ class EntsoePriceSensor(_HourlyCoordinatorSensor):
             if description.suggested_display_precision is not None
             else 2
         )
+        device_name = "ENTSO-e" + ((f" ({name})") if name else "")
         self._attr_device_info = DeviceInfo(
             entry_type=DeviceEntryType.SERVICE,
-            identifiers={(DOMAIN, f"{config_entry.entry_id}_{PRICE_DEVICE_SUFFIX}")},
+            identifiers={(DOMAIN, config_entry.entry_id)},
             manufacturer="entso-e",
-            name="ENTSO-e Prices"
-            + ((f" ({name})") if name else ""),
+            name=device_name,
         )
 
     async def _async_handle_coordinator_update(self) -> None:
@@ -542,12 +542,12 @@ class EntsoeAggregatedPriceSensor(_HourlyCoordinatorSensor):
         self._attr_native_unit_of_measurement = f"{currency}/{energy_scale}"
         self._attr_suggested_display_precision = 3
         self._aggregate_europe = aggregate_europe
+        device_name = "ENTSO-e" + ((f" ({name})") if name else "")
         self._attr_device_info = DeviceInfo(
             entry_type=DeviceEntryType.SERVICE,
-            identifiers={(DOMAIN, f"{config_entry.entry_id}_aggregate_price")},
+            identifiers={(DOMAIN, config_entry.entry_id)},
             manufacturer="entso-e",
-            name="ENTSO-e Aggregated Prices"
-            + ((f" ({name})") if name else ""),
+            name=device_name,
         )
 
     @property
