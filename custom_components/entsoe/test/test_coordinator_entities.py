@@ -2,8 +2,10 @@ import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import requests
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PACKAGE_ROOT))
@@ -148,3 +150,20 @@ def test_load_sensor_timeline_from_mixed_resolution(hass):
     timeline = sensor.extra_state_attributes["timeline"]
     assert timeline == coordinator.timeline()
     assert len(timeline) == len(coordinator.data)
+
+
+def test_load_coordinator_handles_http_400(monkeypatch, hass):
+    coordinator = EntsoeLoadCoordinator(hass, "test", "BE")
+
+    response = SimpleNamespace(status_code=400)
+
+    def _raise(*args, **kwargs):
+        raise requests.exceptions.HTTPError(response=response)
+
+    monkeypatch.setattr(
+        coordinator._client, "query_total_load_forecast", _raise
+    )
+
+    data = asyncio.run(coordinator._async_update_data())
+
+    assert data == {}
