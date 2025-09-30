@@ -476,7 +476,7 @@ class EntsoePriceSensor(_HourlyCoordinatorSensor):
             if description.suggested_display_precision is not None
             else 2
         )
-        device_name = "ENTSO-e" + ((f" ({name})") if name else "")
+        device_name = "entso-e" + ((f" ({name})") if name else "")
         self._attr_device_info = DeviceInfo(
             entry_type=DeviceEntryType.SERVICE,
             identifiers={(DOMAIN, config_entry.entry_id)},
@@ -542,7 +542,7 @@ class EntsoeAggregatedPriceSensor(_HourlyCoordinatorSensor):
         self._attr_native_unit_of_measurement = f"{currency}/{energy_scale}"
         self._attr_suggested_display_precision = 3
         self._aggregate_europe = aggregate_europe
-        device_name = "ENTSO-e" + ((f" ({name})") if name else "")
+        device_name = "entso-e" + ((f" ({name})") if name else "")
         self._attr_device_info = DeviceInfo(
             entry_type=DeviceEntryType.SERVICE,
             identifiers={(DOMAIN, config_entry.entry_id)},
