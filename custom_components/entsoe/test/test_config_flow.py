@@ -94,12 +94,26 @@ def test_async_step_extra_valid_template_passes_context(monkeypatch):
     captured = _capture_render_call(monkeypatch, fixed_now)
 
     assert asyncio.run(flow._valid_template("{{ current_price }}"))
-    assert captured["current_price"] == 0
+    assert captured["current_price"] == 1.0
     assert callable(captured["now"])
     assert (
         captured["now"](None)
         == fixed_now.replace(minute=0, second=0, microsecond=0)
     )
+
+
+def test_async_step_extra_allows_division_by_current_price(monkeypatch):
+    """Templates dividing by current_price should validate without division by zero."""
+
+    flow = EntsoeFlowHandler()
+    flow.hass = HomeAssistant()
+
+    async def render_division(self, **kwargs):
+        return 1 / kwargs["current_price"]
+
+    monkeypatch.setattr(Template, "async_render", render_division, raising=False)
+
+    assert asyncio.run(flow._valid_template("{{ 1 / current_price }}"))
 
 
 def test_options_flow_rejects_non_numeric_template(monkeypatch):
@@ -161,12 +175,27 @@ def test_options_flow_valid_template_passes_context(monkeypatch):
     captured = _capture_render_call(monkeypatch, fixed_now)
 
     assert asyncio.run(options_flow._valid_template("{{ current_price }}"))
-    assert captured["current_price"] == 0
+    assert captured["current_price"] == 1.0
     assert callable(captured["now"])
     assert (
         captured["now"](None)
         == fixed_now.replace(minute=0, second=0, microsecond=0)
     )
+
+
+def test_options_flow_allows_division_by_current_price(monkeypatch):
+    """Options templates dividing by current_price should validate without division by zero."""
+
+    options_flow = EntsoeOptionFlowHandler()
+    hass = HomeAssistant()
+    options_flow.hass = hass
+
+    async def render_division(self, **kwargs):
+        return 1 / kwargs["current_price"]
+
+    monkeypatch.setattr(Template, "async_render", render_division, raising=False)
+
+    assert asyncio.run(options_flow._valid_template("{{ 1 / current_price }}"))
 
 
 def test_options_flow_submits_prefilled_multi_line_template(monkeypatch):

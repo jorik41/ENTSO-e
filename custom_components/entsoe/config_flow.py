@@ -512,6 +512,6 @@ def _modifier_context(price: float, fake_dt: datetime | None = None) -> dict[str
     )
 
     return {
-        "current_price": price,
+        "current_price": price or 1.0,
         "now": faker(aligned_dt),
     }
