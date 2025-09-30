@@ -496,8 +496,15 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
                 end,
             )
         except HTTPError as exc:  # pragma: no cover - matching behaviour of base coordinator
-            if exc.response.status_code == 401:
+            status_code = getattr(exc.response, "status_code", None)
+            if status_code == 401:
                 raise UpdateFailed("Unauthorized: Please check your API-key.") from exc
+            if status_code == 400:
+                self.logger.warning(
+                    "ENTSO-e load data unavailable for area %s (HTTP 400).",
+                    self.area,
+                )
+                return {}
             raise
 
         return response or {}
