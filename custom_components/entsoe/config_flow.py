@@ -394,6 +394,10 @@ class EntsoeOptionFlowHandler(OptionsFlow):
             CONF_CALCULATION_MODE, CALCULATION_MODE["default"]
         )
 
+        modifier_default = self.config_entry.options.get(
+            CONF_MODIFYER, DEFAULT_MODIFYER
+        )
+
         return self.async_show_form(
             step_id="init",
             errors=errors,
@@ -418,8 +422,8 @@ class EntsoeOptionFlowHandler(OptionsFlow):
                     ): vol.All(vol.Coerce(float, "must be a number")),
                     vol.Optional(
                         CONF_MODIFYER,
-                        description={"suggested_value": self.config_entry.options[CONF_MODIFYER]},
-                        default=DEFAULT_MODIFYER,
+                        description={"suggested_value": modifier_default},
+                        default=modifier_default,
                     ): TemplateSelector(TemplateSelectorConfig()),
                     vol.Optional(
                         CONF_CURRENCY,
