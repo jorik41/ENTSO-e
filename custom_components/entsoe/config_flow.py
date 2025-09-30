@@ -195,7 +195,7 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
             else:
                 # Lets try to remove the most common mistakes, this will still fail if the template
                 # was writte in notepad or something like that..
-                modifier = re.sub(r"\s{2,}", "", modifier)
+                modifier = re.sub(r"[ \t]{2,}", " ", modifier.replace("\u00A0", " "))
             user_input[CONF_MODIFYER] = modifier
             if user_input[CONF_CURRENCY] in (None, ""):
                 user_input[CONF_CURRENCY] = DEFAULT_CURRENCY
@@ -358,7 +358,7 @@ class EntsoeOptionFlowHandler(OptionsFlow):
             else:
                 # Lets try to remove the most common mistakes, this will still fail if the template
                 # was written in notepad or something like that..
-                modifier = re.sub(r"\s{2,}", "", modifier)
+                modifier = re.sub(r"[ \t]{2,}", " ", modifier.replace("\u00A0", " "))
             user_input[CONF_MODIFYER] = modifier
             if user_input[CONF_CURRENCY] in (None, ""):
                 user_input[CONF_CURRENCY] = DEFAULT_CURRENCY
