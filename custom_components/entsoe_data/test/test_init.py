@@ -11,10 +11,10 @@ sys.path.append(str(PACKAGE_ROOT))
 from custom_components.entsoe_data.const import (
     CONF_API_KEY,
     CONF_AREA,
+    CONF_ENABLE_EUROPE_GENERATION,
+    CONF_ENABLE_EUROPE_LOAD,
     CONF_ENABLE_GENERATION,
-    CONF_ENABLE_GENERATION_TOTAL_EUROPE,
     CONF_ENABLE_LOAD,
-    CONF_ENABLE_LOAD_TOTAL_EUROPE,
     DOMAIN,
     TOTAL_EUROPE_AREA,
 )
@@ -60,8 +60,8 @@ def test_async_setup_entry_creates_total_europe_coordinators(monkeypatch):
         CONF_AREA: "BE",
         CONF_ENABLE_GENERATION: False,
         CONF_ENABLE_LOAD: False,
-        CONF_ENABLE_GENERATION_TOTAL_EUROPE: True,
-        CONF_ENABLE_LOAD_TOTAL_EUROPE: True,
+        CONF_ENABLE_EUROPE_GENERATION: True,
+        CONF_ENABLE_EUROPE_LOAD: True,
     }
     entry = DummyEntry(options)
 
