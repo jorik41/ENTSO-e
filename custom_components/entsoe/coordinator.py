@@ -342,6 +342,69 @@ class EntsoeCoordinator(DataUpdateCoordinator):
         return self.parse_hourprices(await self.fetch_prices(start_date, end_date))
 
 
+class EntsoeAggregatePriceCoordinator(EntsoeCoordinator):
+    """Coordinator aggregating prices from multiple areas."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api_key: str,
+        areas: list[str],
+        energy_scale: str,
+        modifyer,
+        calculation_mode=CALCULATION_MODE["default"],
+        VAT: float = 0,
+    ) -> None:
+        if not areas:
+            raise ValueError("At least one area must be provided for aggregation")
+
+        ordered_areas = list(dict.fromkeys(areas))
+        primary_area = ordered_areas[0]
+        super().__init__(
+            hass,
+            api_key=api_key,
+            area=primary_area,
+            energy_scale=energy_scale,
+            modifyer=modifyer,
+            calculation_mode=calculation_mode,
+            VAT=VAT,
+        )
+        self._selected_area_keys = ordered_areas
+        self._selected_area_codes = [
+            AREA_INFO[key]["code"] for key in self._selected_area_keys
+        ]
+        self.area = " + ".join(self._selected_area_codes)
+        self.logger = logging.getLogger(f"{__name__}.aggregate")
+        self._cache_window: tuple[datetime, datetime] | None = None
+        self._raw_cache: dict[str, dict[datetime, float]] = {}
+
+    def api_update(self, start_date, end_date, api_key):
+        cache_window = (start_date, end_date)
+        if self._cache_window != cache_window:
+            self._cache_window = cache_window
+            self._raw_cache = {}
+
+        aggregated: dict[datetime, float] = defaultdict(float)
+        client = EntsoeClient(api_key=api_key)
+        for area_code in self._selected_area_codes:
+            if area_code not in self._raw_cache:
+                response = client.query_day_ahead_prices(
+                    country_code=area_code, start=start_date, end=end_date
+                )
+                self._raw_cache[area_code] = response or {}
+
+            for timestamp, value in self._raw_cache[area_code].items():
+                aggregated[timestamp] += value
+
+        return dict(sorted(aggregated.items()))
+
+    def selected_areas(self) -> list[str]:
+        return list(self._selected_area_keys)
+
+    def aggregates_all_areas(self) -> bool:
+        return set(self._selected_area_keys) == set(AREA_INFO.keys())
+
+
 class EntsoeBaseCoordinator(DataUpdateCoordinator[dict]):
     """Base coordinator providing helper selection utilities."""
 

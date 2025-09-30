@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components.sensor import (
     RestoreSensor,
@@ -28,6 +28,8 @@ from .api_client import PSR_CATEGORY_MAPPING
 from .const import (
     AREA_INFO,
     ATTRIBUTION,
+    CONF_AGGREGATE_AREAS,
+    CONF_AGGREGATE_EUROPE,
     CONF_AREA,
     CONF_CURRENCY,
     CONF_ENERGY_SCALE,
@@ -37,6 +39,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import (
+    EntsoeAggregatePriceCoordinator,
     EntsoeCoordinator,
     EntsoeGenerationCoordinator,
     EntsoeLoadCoordinator,
@@ -304,6 +307,14 @@ async def async_setup_entry(
         )
     )
 
+    if aggregate_coordinator := coordinators.get("aggregate_price"):
+        entities.extend(
+            _create_aggregate_sensors(
+                config_entry,
+                aggregate_coordinator,
+            )
+        )
+
     if generation_coordinator := coordinators.get("generation"):
         entities.extend(
             _create_generation_sensors(
@@ -333,6 +344,26 @@ def _create_price_sensors(
     return [
         EntsoePriceSensor(coordinator, description, config_entry, name)
         for description in price_sensor_descriptions(currency, energy_scale)
+    ]
+
+
+def _create_aggregate_sensors(
+    config_entry: ConfigEntry, coordinator: EntsoeAggregatePriceCoordinator
+) -> list[RestoreSensor]:
+    name = config_entry.options.get(CONF_ENTITY_NAME, "")
+    currency = config_entry.options.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+    energy_scale = config_entry.options.get(CONF_ENERGY_SCALE, DEFAULT_ENERGY_SCALE)
+    aggregate_europe = config_entry.options.get(CONF_AGGREGATE_EUROPE, False)
+
+    return [
+        EntsoeAggregatedPriceSensor(
+            coordinator,
+            config_entry,
+            name,
+            currency,
+            energy_scale,
+            aggregate_europe,
+        )
     ]
 
 
@@ -478,6 +509,76 @@ class EntsoePriceSensor(_HourlyCoordinatorSensor):
                     self.entity_id,
                     exc,
                 )
+
+
+class EntsoeAggregatedPriceSensor(_HourlyCoordinatorSensor):
+    """Representation of an aggregated ENTSO-e price sensor."""
+
+    def __init__(
+        self,
+        coordinator: EntsoeAggregatePriceCoordinator,
+        config_entry: ConfigEntry,
+        name: str,
+        currency: str,
+        energy_scale: str,
+        aggregate_europe: bool,
+    ) -> None:
+        super().__init__(coordinator)
+        base_name = "Aggregated electricity market price"
+        if name:
+            slug = name.lower().replace(" ", "_")
+            self.entity_id = f"{DOMAIN}.{slug}_aggregated_price"
+            self._attr_unique_id = (
+                f"entsoe.{config_entry.entry_id}.aggregate_price.{slug}"
+            )
+            self._attr_name = f"{base_name} ({name})"
+        else:
+            self.entity_id = f"{DOMAIN}.aggregated_price"
+            self._attr_unique_id = (
+                f"entsoe.{config_entry.entry_id}.aggregate_price"
+            )
+            self._attr_name = base_name
+        self._attr_icon = "mdi:chart-multiple"
+        self._attr_native_unit_of_measurement = f"{currency}/{energy_scale}"
+        self._attr_suggested_display_precision = 3
+        self._aggregate_europe = aggregate_europe
+        self._attr_device_info = DeviceInfo(
+            entry_type=DeviceEntryType.SERVICE,
+            identifiers={(DOMAIN, f"{config_entry.entry_id}_aggregate_price")},
+            manufacturer="entso-e",
+            name="ENTSO-e Aggregated Prices"
+            + ((f" ({name})") if name else ""),
+        )
+
+    @property
+    def available(self) -> bool:
+        return self._last_update_success and super().available
+
+    async def _async_handle_coordinator_update(self) -> None:
+        coordinator = cast(EntsoeAggregatePriceCoordinator, self.coordinator)
+
+        if (
+            coordinator.data is None
+            or not coordinator.today_data_available()
+        ):
+            raise RuntimeError("No valid aggregated data for today available.")
+
+        coordinator.sync_calculator()
+        self._attr_native_value = coordinator.get_current_hourprice()
+
+        selected_area_keys = coordinator.selected_areas()
+        selected_area_names = [
+            AREA_INFO.get(area, {}).get("name", area) for area in selected_area_keys
+        ]
+
+        self._attr_extra_state_attributes = {
+            "prices_today": coordinator.get_prices_today(),
+            "prices_tomorrow": coordinator.get_prices_tomorrow(),
+            "prices": coordinator.get_prices(),
+            CONF_AGGREGATE_AREAS: selected_area_keys,
+            "selected_area_names": selected_area_names,
+            CONF_AGGREGATE_EUROPE: self._aggregate_europe,
+        }
 
 
 class EntsoeGenerationSensor(_HourlyCoordinatorSensor):

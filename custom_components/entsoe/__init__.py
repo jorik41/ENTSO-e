@@ -20,6 +20,7 @@ except ModuleNotFoundError:  # pragma: no cover - used only in unit tests
     from homeassistant.helpers.typing import ConfigType
 
 from .const import (
+    AREA_INFO,
     CALCULATION_MODE,
     CONF_API_KEY,
     CONF_AREA,
@@ -27,6 +28,8 @@ from .const import (
     CONF_CALCULATION_MODE,
     CONF_ENABLE_GENERATION,
     CONF_ENABLE_LOAD,
+    CONF_AGGREGATE_AREAS,
+    CONF_AGGREGATE_EUROPE,
     CONF_MODIFYER,
     CONF_VAT_VALUE,
     DEFAULT_MODIFYER,
@@ -36,6 +39,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import (
+    EntsoeAggregatePriceCoordinator,
     EntsoeCoordinator,
     EntsoeGenerationCoordinator,
     EntsoeLoadCoordinator,
@@ -70,6 +74,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_ENABLE_GENERATION, DEFAULT_ENABLE_GENERATION
     )
     enable_load = entry.options.get(CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD)
+    aggregate_europe = entry.options.get(CONF_AGGREGATE_EUROPE, False)
+    aggregate_areas = entry.options.get(CONF_AGGREGATE_AREAS, [])
+    if aggregate_europe:
+        aggregate_areas = sorted(AREA_INFO.keys())
+    else:
+        aggregate_areas = [
+            area for area in aggregate_areas if area in AREA_INFO
+        ]
     price_coordinator = EntsoeCoordinator(
         hass,
         api_key=api_key,
@@ -81,6 +93,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     data = {"price": price_coordinator}
+
+    if aggregate_areas:
+        aggregate_coordinator = EntsoeAggregatePriceCoordinator(
+            hass,
+            api_key=api_key,
+            areas=aggregate_areas,
+            energy_scale=energy_scale,
+            modifyer=modifyer,
+            calculation_mode=calculation_mode,
+            VAT=vat,
+        )
+        data["aggregate_price"] = aggregate_coordinator
 
     if enable_generation:
         generation_coordinator = EntsoeGenerationCoordinator(
@@ -102,6 +126,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Fetch initial data, so we have data when entities subscribe and set up the platform
     await price_coordinator.async_config_entry_first_refresh()
+
+    if aggregate_areas:
+        await data["aggregate_price"].async_config_entry_first_refresh()
 
     if enable_generation:
         await data["generation"].async_config_entry_first_refresh()
