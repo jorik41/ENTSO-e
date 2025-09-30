@@ -32,7 +32,7 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(config_entry: ConfigEntry) -> "EntsoeOptionFlowHandler":
         """Return the options flow handler for this integration."""
 
-        return EntsoeOptionFlowHandler()
+        return EntsoeOptionFlowHandler(config_entry)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -93,9 +93,10 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
 class EntsoeOptionFlowHandler(OptionsFlow):
     """Handle options for the ENTSO-e Data integration."""
 
-    @property
-    def config_entry(self) -> ConfigEntry:
-        return self.hass.config_entries.async_get_entry(self.handler)
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize the options flow handler."""
+
+        super().__init__(config_entry)
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
