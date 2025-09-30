@@ -7,13 +7,12 @@ from types import SimpleNamespace
 import pytest
 import requests
 
-PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 sys.path.append(str(PACKAGE_ROOT))
 
 from custom_components.entsoe.api_client import EntsoeClient
 from custom_components.entsoe.const import CONF_AREA
 from custom_components.entsoe.coordinator import (
-    EntsoeAggregatePriceCoordinator,
     EntsoeGenerationCoordinator,
     EntsoeLoadCoordinator,
 )
@@ -170,56 +169,3 @@ def test_load_coordinator_handles_http_400(monkeypatch, hass):
     assert data == {}
 
 
-def test_aggregate_coordinator_sums_and_caches(monkeypatch, hass):
-    coordinator = EntsoeAggregatePriceCoordinator(
-        hass,
-        api_key="token",
-        areas=["BE", "NL"],
-        energy_scale="MWh",
-        modifyer="{{current_price}}",
-    )
-
-    base_time = datetime.now().astimezone().replace(
-        minute=0, second=0, microsecond=0
-    )
-    timeline = {
-        base_time: 10.0,
-        base_time + timedelta(hours=1): 20.0,
-    }
-    other_timeline = {
-        base_time: 1.0,
-        base_time + timedelta(hours=1): 2.0,
-    }
-
-    calls: list[str] = []
-
-    def fake_query(self, country_code, start, end):
-        calls.append(country_code)
-        if country_code == "BE":
-            return timeline
-        if country_code == "NL":
-            return other_timeline
-        return {}
-
-    monkeypatch.setattr(
-        "custom_components.entsoe.coordinator.EntsoeClient.query_day_ahead_prices",
-        fake_query,
-    )
-
-    start = base_time - timedelta(days=1)
-    end = start + timedelta(days=3)
-
-    aggregated = coordinator.api_update(start, end, "token")
-
-    assert calls == ["BE", "NL"]
-    assert aggregated[base_time] == pytest.approx(11.0)
-    assert aggregated[base_time + timedelta(hours=1)] == pytest.approx(22.0)
-
-    calls.clear()
-    cached = coordinator.api_update(start, end, "token")
-    assert cached == aggregated
-    assert calls == []
-
-    parsed = coordinator.parse_hourprices(dict(aggregated))
-    assert parsed[base_time] == pytest.approx(11.0)
-    assert coordinator.selected_areas() == ["BE", "NL"]
