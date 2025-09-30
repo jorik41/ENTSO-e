@@ -33,14 +33,11 @@ from .const import (
 )
 
 
-SENSOR_GROUP_LOCAL = "local_sensors"
-SENSOR_GROUP_EUROPE = "europe_sensors"
-
-SENSOR_FLAG_GROUPS: tuple[tuple[str, str], ...] = (
-    (CONF_ENABLE_GENERATION, SENSOR_GROUP_LOCAL),
-    (CONF_ENABLE_LOAD, SENSOR_GROUP_LOCAL),
-    (CONF_ENABLE_EUROPE_GENERATION, SENSOR_GROUP_EUROPE),
-    (CONF_ENABLE_EUROPE_LOAD, SENSOR_GROUP_EUROPE),
+SENSOR_FLAG_KEYS: tuple[str, ...] = (
+    CONF_ENABLE_GENERATION,
+    CONF_ENABLE_LOAD,
+    CONF_ENABLE_EUROPE_GENERATION,
+    CONF_ENABLE_EUROPE_LOAD,
 )
 
 
@@ -72,58 +69,15 @@ def _build_defaults(options: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-def _resolve_flag(
-    data: dict[str, Any], option_key: str, group: str, fallback: bool
-) -> bool:
-    """Resolve a boolean flag from grouped user input."""
-
-    group_data = data.get(group)
-    if isinstance(group_data, dict) and option_key in group_data:
-        return bool(group_data[option_key])
-
-    if option_key in data:
-        return bool(data[option_key])
-
-    return fallback
-
-
 def _extract_sensor_values(
     data: dict[str, Any], defaults: dict[str, Any]
 ) -> dict[str, bool]:
     """Extract sensor enable flags from the submitted form data."""
 
     return {
-        option_key: _resolve_flag(data, option_key, group, defaults[option_key])
-        for option_key, group in SENSOR_FLAG_GROUPS
+        option_key: bool(data.get(option_key, defaults[option_key]))
+        for option_key in SENSOR_FLAG_KEYS
     }
-
-
-def _group_defaults(
-    user_input: dict[str, Any] | None, defaults: dict[str, Any], group: str
-) -> dict[str, bool]:
-    """Generate default values for a sensor group."""
-
-    values: dict[str, bool] = {}
-    nested: dict[str, Any] | None = None
-
-    if user_input is not None and isinstance(user_input.get(group), dict):
-        nested = user_input[group]
-
-    for option_key, option_group in SENSOR_FLAG_GROUPS:
-        if option_group != group:
-            continue
-
-        if nested and option_key in nested:
-            values[option_key] = bool(nested[option_key])
-            continue
-
-        if user_input and option_key in user_input:
-            values[option_key] = bool(user_input[option_key])
-            continue
-
-        values[option_key] = defaults[option_key]
-
-    return values
 
 
 def _build_form_schema(
@@ -134,59 +88,28 @@ def _build_form_schema(
     api_key_default = (user_input or {}).get(CONF_API_KEY, defaults[CONF_API_KEY])
     area_default = (user_input or {}).get(CONF_AREA, defaults[CONF_AREA])
 
-    local_defaults = _group_defaults(user_input, defaults, SENSOR_GROUP_LOCAL)
-    europe_defaults = _group_defaults(user_input, defaults, SENSOR_GROUP_EUROPE)
+    schema: dict[Any, Any] = {
+        vol.Required(CONF_API_KEY, default=api_key_default): vol.All(vol.Coerce(str)),
+    }
 
-    area_field = (
-        vol.Required(CONF_AREA, default=area_default)
-        if area_default is not None
-        else vol.Required(CONF_AREA)
+    area_field = vol.Required(CONF_AREA)
+    if area_default is not None:
+        area_field = vol.Required(CONF_AREA, default=area_default)
+
+    schema[area_field] = SelectSelector(
+        SelectSelectorConfig(
+            options=[
+                SelectOptionDict(value=country, label=info["name"])
+                for country, info in AREA_INFO.items()
+            ]
+        ),
     )
 
-    return vol.Schema(
-        {
-            vol.Required(CONF_API_KEY, default=api_key_default): vol.All(
-                vol.Coerce(str)
-            ),
-            area_field: SelectSelector(
-                SelectSelectorConfig(
-                    options=[
-                        SelectOptionDict(value=country, label=info["name"])
-                        for country, info in AREA_INFO.items()
-                    ]
-                ),
-            ),
-            vol.Optional(
-                SENSOR_GROUP_LOCAL,
-                default=local_defaults,
-            ): vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_ENABLE_GENERATION,
-                        default=local_defaults[CONF_ENABLE_GENERATION],
-                    ): bool,
-                    vol.Optional(
-                        CONF_ENABLE_LOAD, default=local_defaults[CONF_ENABLE_LOAD]
-                    ): bool,
-                }
-            ),
-            vol.Optional(
-                SENSOR_GROUP_EUROPE,
-                default=europe_defaults,
-            ): vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_ENABLE_EUROPE_GENERATION,
-                        default=europe_defaults[CONF_ENABLE_EUROPE_GENERATION],
-                    ): bool,
-                    vol.Optional(
-                        CONF_ENABLE_EUROPE_LOAD,
-                        default=europe_defaults[CONF_ENABLE_EUROPE_LOAD],
-                    ): bool,
-                }
-            ),
-        }
-    )
+    for option_key in SENSOR_FLAG_KEYS:
+        option_default = (user_input or {}).get(option_key, defaults[option_key])
+        schema[vol.Optional(option_key, default=option_default)] = bool
+
+    return vol.Schema(schema)
 
 
 class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
@@ -240,7 +163,7 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                 title = AREA_INFO.get(area, {}).get("name", area)
                 sensor_values = _extract_sensor_values(user_input, defaults)
                 options = {
-                    CONF_API_KEY: user_input[CONF_API_KEY],
+                    CONF_API_KEY: user_input[CONF_API_KEY].strip(),
                     CONF_AREA: area,
                     **sensor_values,
                 }
@@ -291,7 +214,7 @@ class EntsoeOptionFlowHandler(OptionsFlow):
         if user_input is not None:
             sensor_values = _extract_sensor_values(user_input, defaults)
             data = {
-                CONF_API_KEY: user_input[CONF_API_KEY],
+                CONF_API_KEY: user_input[CONF_API_KEY].strip(),
                 CONF_AREA: user_input[CONF_AREA],
                 **sensor_values,
             }
