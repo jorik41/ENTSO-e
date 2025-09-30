@@ -9,20 +9,10 @@
         "data": {
           "api_key": "Your API Key",
           "area": "Area*",
-          "local_sensors": "Local area sensors",
           "enable_generation": "Enable generation mix sensors",
           "enable_load": "Enable load forecast sensors",
-          "europe_sensors": "Total Europe sensors",
           "enable_europe_generation": "Enable Total Europe generation sensors",
           "enable_europe_load": "Enable Total Europe load sensors"
-        },
-        "data_description": {
-          "local_sensors": {
-            "description": "Configure sensors for the selected bidding zone."
-          },
-          "europe_sensors": {
-            "description": "Enable aggregated sensors for the Total Europe zone."
-          }
         }
       }
     },
@@ -37,20 +27,10 @@
         "data": {
           "api_key": "Your API Key",
           "area": "Area*",
-          "local_sensors": "Local area sensors",
           "enable_generation": "Enable generation mix sensors",
           "enable_load": "Enable load forecast sensors",
-          "europe_sensors": "Total Europe sensors",
           "enable_europe_generation": "Enable Total Europe generation sensors",
           "enable_europe_load": "Enable Total Europe load sensors"
-        },
-        "data_description": {
-          "local_sensors": {
-            "description": "Configure sensors for the selected bidding zone."
-          },
-          "europe_sensors": {
-            "description": "Enable aggregated sensors for the Total Europe zone."
-          }
         }
       }
     }

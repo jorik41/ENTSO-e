@@ -9,20 +9,10 @@
         "data": {
           "api_key": "Je API-sleutel",
           "area": "Gebied*",
-          "local_sensors": "Lokale sensoren",
           "enable_generation": "Generatiesensoren inschakelen",
           "enable_load": "Belastingsensoren inschakelen",
-          "europe_sensors": "Total Europe sensoren",
           "enable_europe_generation": "Total Europe-generatiesensoren inschakelen",
           "enable_europe_load": "Total Europe-belastingsensoren inschakelen"
-        },
-        "data_description": {
-          "local_sensors": {
-            "description": "Configureer sensoren voor de gekozen biedzone."
-          },
-          "europe_sensors": {
-            "description": "Schakel geaggregeerde sensoren voor de Total Europe-zone in."
-          }
         }
       }
     },
@@ -37,20 +27,10 @@
         "data": {
           "api_key": "Je API-sleutel",
           "area": "Gebied*",
-          "local_sensors": "Lokale sensoren",
           "enable_generation": "Generatiesensoren inschakelen",
           "enable_load": "Belastingsensoren inschakelen",
-          "europe_sensors": "Total Europe sensoren",
           "enable_europe_generation": "Total Europe-generatiesensoren inschakelen",
           "enable_europe_load": "Total Europe-belastingsensoren inschakelen"
-        },
-        "data_description": {
-          "local_sensors": {
-            "description": "Configureer sensoren voor de gekozen biedzone."
-          },
-          "europe_sensors": {
-            "description": "Schakel geaggregeerde sensoren voor de Total Europe-zone in."
-          }
         }
       }
     }
