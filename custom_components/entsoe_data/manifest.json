@@ -1,5 +1,5 @@
 {
-  "domain": "entsoe",
+  "domain": "entsoe_data",
   "name": "ENTSO-e Data",
   "codeowners": ["@JaccoR"],
   "config_flow": true,

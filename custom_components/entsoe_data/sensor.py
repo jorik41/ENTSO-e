@@ -291,7 +291,7 @@ class EntsoeGenerationSensor(_HourlyCoordinatorSensor):
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = (
-            f"entsoe.{config_entry.entry_id}.{GENERATION_DEVICE_SUFFIX}.{description.key}"
+            f"entsoe_data.{config_entry.entry_id}.{GENERATION_DEVICE_SUFFIX}.{description.key}"
         )
         self._attr_name = (
             f"{description.name} ({area_name})" if area_name else description.name
@@ -337,7 +337,7 @@ class EntsoeLoadSensor(_HourlyCoordinatorSensor):
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = (
-            f"entsoe.{config_entry.entry_id}.{LOAD_DEVICE_SUFFIX}.{description.key}"
+            f"entsoe_data.{config_entry.entry_id}.{LOAD_DEVICE_SUFFIX}.{description.key}"
         )
         self._attr_name = (
             f"{description.name} ({area_name})" if area_name else description.name

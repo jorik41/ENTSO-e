@@ -10,13 +10,13 @@ import requests
 PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 sys.path.append(str(PACKAGE_ROOT))
 
-from custom_components.entsoe.api_client import EntsoeClient
-from custom_components.entsoe.const import CONF_AREA
-from custom_components.entsoe.coordinator import (
+from custom_components.entsoe_data.api_client import EntsoeClient
+from custom_components.entsoe_data.const import CONF_AREA
+from custom_components.entsoe_data.coordinator import (
     EntsoeGenerationCoordinator,
     EntsoeLoadCoordinator,
 )
-from custom_components.entsoe.sensor import (
+from custom_components.entsoe_data.sensor import (
     TOTAL_GENERATION_KEY,
     EntsoeGenerationSensor,
     EntsoeLoadSensor,
@@ -51,7 +51,7 @@ def patch_track_point(monkeypatch):
         return lambda: None
 
     monkeypatch.setattr(
-        "custom_components.entsoe.sensor.event.async_track_point_in_utc_time",
+        "custom_components.entsoe_data.sensor.event.async_track_point_in_utc_time",
         _fake_track_point,
     )
 
