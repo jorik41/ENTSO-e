@@ -78,19 +78,25 @@ class EntsoeCoordinator(DataUpdateCoordinator):
             return price
 
         price = value / ENERGY_SCALES[self.energy_scale]
-        if fake_dt is not None:
 
-            def faker():
-                def inner(*args, **kwargs):
-                    return fake_dt
+        def faker(target_dt):
+            def inner(*args, **kwargs):
+                return target_dt
 
-                return pass_context(inner)
+            return pass_context(inner)
 
-            template_value = self.modifyer.async_render(
-                now=faker(), current_price=price
-            )
-        else:
-            template_value = self.modifyer.async_render()
+        aligned_dt = (
+            fake_dt
+            if fake_dt is not None
+            else dt.now().replace(minute=0, second=0, microsecond=0)
+        )
+
+        context = {
+            "current_price": price,
+            "now": faker(aligned_dt),
+        }
+
+        template_value = self.modifyer.async_render(**context)
 
         price = round(float(template_value) * (1 + self.vat), 5)
 
