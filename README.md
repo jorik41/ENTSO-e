@@ -59,7 +59,11 @@ The sensors can be added using the integration page.
 2. Search for "entso
 3. Click on the Entso-e to start te configuration flow.
 
- In the config flow you can add your API-key and country and the sensors will automatically be added to your system. There is an optional field for a cost modifyer template and resulting currency.
+In the config flow you can add your API-key and country and the sensors will automatically be added to your system. There is an optional field for a cost modifyer template and resulting currency.
+
+#### Aggregate Europe mode
+
+When you enable the advanced options during setup you can opt into an **Aggregate Europe** mode. The integration will then fetch prices for every selected bidding zone sequentially and expose a dedicated `Aggregated electricity market price` sensor that sums the per-hour values into a single timeline. You can either toggle the "Aggregate all available areas" switch or pick a custom subset of areas to include in the aggregation. The sensor attributes expose the aggregated timelines together with the list of participating areas so you can visualise or automate against the combined series.
 
 ### Cost Modifyer Template
 

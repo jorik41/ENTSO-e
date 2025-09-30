@@ -25,6 +25,8 @@ from .const import (
     CALCULATION_MODE,
     COMPONENT_TITLE,
     CONF_ADVANCED_OPTIONS,
+    CONF_AGGREGATE_AREAS,
+    CONF_AGGREGATE_EUROPE,
     CONF_API_KEY,
     CONF_AREA,
     CONF_CALCULATION_MODE,
@@ -59,6 +61,8 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
         self.currency = None
         self.energy_scale = None
         self.name = ""
+        self.aggregate_europe = False
+        self.aggregate_areas: list[str] = []
 
     VERSION = 1
 
@@ -101,6 +105,8 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                 user_input[CONF_CURRENCY] = DEFAULT_CURRENCY
                 user_input[CONF_ENERGY_SCALE] = DEFAULT_ENERGY_SCALE
                 user_input[CONF_CALCULATION_MODE] = CALCULATION_MODE["default"]
+                user_input[CONF_AGGREGATE_EUROPE] = False
+                user_input[CONF_AGGREGATE_AREAS] = []
 
                 return self.async_create_entry(
                     title=self.name or COMPONENT_TITLE,
@@ -117,6 +123,8 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                         CONF_CALCULATION_MODE: user_input[CONF_CALCULATION_MODE],
                         CONF_ENABLE_GENERATION: DEFAULT_ENABLE_GENERATION,
                         CONF_ENABLE_LOAD: DEFAULT_ENABLE_LOAD,
+                        CONF_AGGREGATE_EUROPE: user_input[CONF_AGGREGATE_EUROPE],
+                        CONF_AGGREGATE_AREAS: user_input[CONF_AGGREGATE_AREAS],
                     },
                 )
 
@@ -155,6 +163,8 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_ENABLE_GENERATION, DEFAULT_ENABLE_GENERATION
             )
             user_input.setdefault(CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD)
+            user_input.setdefault(CONF_AGGREGATE_AREAS, [])
+            user_input.setdefault(CONF_AGGREGATE_EUROPE, False)
 
             if user_input[CONF_ENTITY_NAME] not in (None, ""):
                 self.name = user_input[CONF_ENTITY_NAME]
@@ -186,6 +196,16 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
             if not already_configured:
                 if template_ok:
                     if "current_price" in user_input[CONF_MODIFYER]:
+                        aggregate_europe = user_input.get(
+                            CONF_AGGREGATE_EUROPE, False
+                        )
+                        aggregate_areas = user_input.get(
+                            CONF_AGGREGATE_AREAS, []
+                        )
+                        if aggregate_europe:
+                            aggregate_areas = sorted(AREA_INFO.keys())
+                        self.aggregate_europe = aggregate_europe
+                        self.aggregate_areas = aggregate_areas
                         return self.async_create_entry(
                             title=self.name or COMPONENT_TITLE,
                             data={},
@@ -204,6 +224,8 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                                     CONF_ENABLE_GENERATION
                                 ],
                                 CONF_ENABLE_LOAD: user_input[CONF_ENABLE_LOAD],
+                                CONF_AGGREGATE_EUROPE: aggregate_europe,
+                                CONF_AGGREGATE_AREAS: aggregate_areas,
                             },
                         )
                     errors["base"] = "missing_current_price"
@@ -244,6 +266,20 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                     vol.Optional(
                         CONF_ENABLE_LOAD, default=DEFAULT_ENABLE_LOAD
                     ): bool,
+                    vol.Optional(
+                        CONF_AGGREGATE_EUROPE, default=False
+                    ): bool,
+                    vol.Optional(
+                        CONF_AGGREGATE_AREAS, default=[]
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[
+                                SelectOptionDict(value=country, label=info["name"])
+                                for country, info in AREA_INFO.items()
+                            ],
+                            multiple=True,
+                        )
+                    ),
                 },
             ),
         )
@@ -292,6 +328,14 @@ class EntsoeOptionFlowHandler(OptionsFlow):
                     CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD
                 ),
             )
+            user_input.setdefault(
+                CONF_AGGREGATE_AREAS,
+                self.config_entry.options.get(CONF_AGGREGATE_AREAS, []),
+            )
+            user_input.setdefault(
+                CONF_AGGREGATE_EUROPE,
+                self.config_entry.options.get(CONF_AGGREGATE_EUROPE, False),
+            )
             template_ok = False
             if user_input[CONF_MODIFYER] in (None, ""):
                 user_input[CONF_MODIFYER] = DEFAULT_MODIFYER
@@ -311,6 +355,17 @@ class EntsoeOptionFlowHandler(OptionsFlow):
 
             if template_ok:
                 if "current_price" in user_input[CONF_MODIFYER]:
+                    aggregate_europe = user_input.get(
+                        CONF_AGGREGATE_EUROPE,
+                        self.config_entry.options.get(
+                            CONF_AGGREGATE_EUROPE, False
+                        ),
+                    )
+                    aggregate_areas = user_input.get(CONF_AGGREGATE_AREAS, [])
+                    if aggregate_europe:
+                        aggregate_areas = sorted(AREA_INFO.keys())
+                    user_input[CONF_AGGREGATE_AREAS] = aggregate_areas
+                    user_input[CONF_AGGREGATE_EUROPE] = aggregate_europe
                     return self.async_create_entry(title="", data=user_input)
                 errors["base"] = "missing_current_price"
             else:
@@ -383,6 +438,26 @@ class EntsoeOptionFlowHandler(OptionsFlow):
                             CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD
                         ),
                     ): bool,
+                    vol.Optional(
+                        CONF_AGGREGATE_EUROPE,
+                        default=self.config_entry.options.get(
+                            CONF_AGGREGATE_EUROPE, False
+                        ),
+                    ): bool,
+                    vol.Optional(
+                        CONF_AGGREGATE_AREAS,
+                        default=self.config_entry.options.get(
+                            CONF_AGGREGATE_AREAS, []
+                        ),
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[
+                                SelectOptionDict(value=country, label=info["name"])
+                                for country, info in AREA_INFO.items()
+                            ],
+                            multiple=True,
+                        )
+                    ),
                 },
             ),
         )

@@ -238,13 +238,6 @@ def install_hass_stubs() -> None:
     helpers = _ensure_module("homeassistant.helpers")
     helpers.__path__ = []
 
-    config_validation = _ensure_module("homeassistant.helpers.config_validation")
-
-    def template(value):  # pragma: no cover - stub validator
-        return value
-
-    config_validation.template = template
-
     template_mod = _ensure_module("homeassistant.helpers.template")
 
     class Template:
@@ -252,10 +245,19 @@ def install_hass_stubs() -> None:
             self.template = template
             self.hass = hass
 
-        async def async_render(self, *args, **kwargs):  # pragma: no cover - stub
+        def async_render(self, *args, **kwargs):  # pragma: no cover - stub
             return kwargs.get("current_price", self.template)
 
     template_mod.Template = Template
+
+    config_validation = _ensure_module("homeassistant.helpers.config_validation")
+
+    def template(value):  # pragma: no cover - stub validator
+        if isinstance(value, Template):
+            return value
+        return Template(value)
+
+    config_validation.template = template
 
     device_registry = _ensure_module("homeassistant.helpers.device_registry")
 
@@ -283,8 +285,13 @@ def install_hass_stubs() -> None:
             super().__init__(value=value, label=label)
 
     class SelectSelectorConfig:  # pragma: no cover - stub selector
-        def __init__(self, options: list[SelectOptionDict] | None = None) -> None:
+        def __init__(
+            self,
+            options: list[SelectOptionDict] | None = None,
+            multiple: bool | None = None,
+        ) -> None:
             self.options = options or []
+            self.multiple = multiple
 
     class SelectSelector:  # pragma: no cover - stub selector
         def __init__(self, config: SelectSelectorConfig) -> None:
