@@ -133,7 +133,7 @@ class EntsoeClient:
         -------
         str
         """
-        area = Area[country_code.upper()]
+        area = Area.from_identifier(country_code)
         params = {
             "documentType": "A44",
             "in_Domain": area.code,
@@ -160,7 +160,7 @@ class EntsoeClient:
         end: datetime,
         process_type: str = PROCESS_TYPE_REALISED,
     ) -> Dict[datetime, Dict[str, float]]:
-        area = Area[country_code.upper()]
+        area = Area.from_identifier(country_code)
         process = process_type
         if not isinstance(process, str):
             process = str(process)
@@ -202,7 +202,7 @@ class EntsoeClient:
     def query_total_load_forecast(
         self, country_code: Union[Area, str], start: datetime, end: datetime
     ) -> Dict[datetime, float]:
-        area = Area[country_code.upper()]
+        area = Area.from_identifier(country_code)
         params = {
             "documentType": DOCUMENT_TYPE_TOTAL_LOAD,
             "processType": PROCESS_TYPE_DAY_AHEAD,
@@ -459,7 +459,38 @@ class Area(enum.Enum):
 
     @classmethod
     def has_code(cls, code: str) -> bool:
-        return code in cls.__members__
+        if not isinstance(code, str):
+            return False
+
+        normalized = code.upper()
+
+        return (
+            normalized in cls.__members__
+            or code in cls._value2member_map_
+            or normalized in cls._value2member_map_
+        )
+
+    @classmethod
+    def from_identifier(cls, value: Union["Area", str]) -> "Area":
+        """Resolve an ``Area`` from either an enum member, name or EIC code."""
+
+        if isinstance(value, cls):
+            return value
+
+        if not isinstance(value, str):
+            raise KeyError(f"Unknown area identifier: {value}")
+
+        name = value.upper()
+        if name in cls.__members__:
+            return cls[name]
+
+        if value in cls._value2member_map_:
+            return cls._value2member_map_[value]
+
+        if name in cls._value2member_map_:
+            return cls._value2member_map_[name]
+
+        raise KeyError(f"Unknown area identifier: {value}")
 
     # List taken directly from the API Docs
     DE_50HZ = (
