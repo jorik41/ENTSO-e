@@ -11,7 +11,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 sys.path.append(str(PACKAGE_ROOT))
 
 from custom_components.entsoe_data.api_client import EntsoeClient
-from custom_components.entsoe_data.const import CONF_AREA
+from custom_components.entsoe_data.const import AREA_INFO, CONF_AREA, DOMAIN, TOTAL_EUROPE_AREA
 from custom_components.entsoe_data.coordinator import (
     EntsoeGenerationCoordinator,
     EntsoeLoadCoordinator,
@@ -21,7 +21,9 @@ from custom_components.entsoe_data.sensor import (
     EntsoeGenerationSensor,
     EntsoeLoadSensor,
     generation_sensor_descriptions,
+    generation_total_europe_descriptions,
     load_sensor_descriptions,
+    load_total_europe_descriptions,
 )
 
 DATASET_DIR = Path(__file__).parent / "datasets"
@@ -122,6 +124,43 @@ def test_generation_sensor_availability(hass):
     assert sensor.available is False
 
 
+def test_total_europe_generation_sensor_grouping(hass):
+    coordinator = EntsoeGenerationCoordinator(hass, "test", TOTAL_EUROPE_AREA)
+    timestamp = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
+    coordinator.data = {
+        timestamp: {
+            TOTAL_GENERATION_KEY: 6400.0,
+        }
+    }
+    coordinator._available_categories = {TOTAL_GENERATION_KEY}
+
+    description = generation_total_europe_descriptions(coordinator)[0]
+
+    config_entry = type(
+        "ConfigEntry",
+        (),
+        {
+            "entry_id": "entry",
+            "options": {CONF_AREA: "BE"},
+        },
+    )()
+
+    area_name = AREA_INFO[TOTAL_EUROPE_AREA]["name"]
+    sensor = EntsoeGenerationSensor(coordinator, description, config_entry, area_name)
+    sensor.hass = hass
+
+    asyncio.run(sensor.async_update())
+
+    assert sensor.entity_id == "entsoe_data.total_europe_generation_total"
+    assert sensor._attr_unique_id.endswith(
+        "total_europe_generation.total_europe_generation_total"
+    )
+    assert sensor._attr_device_info.identifiers == {
+        (DOMAIN, "entry_total_europe_generation")
+    }
+    assert sensor.native_value == 6400.0
+
+
 def test_load_sensor_timeline_from_mixed_resolution(hass):
     coordinator = EntsoeLoadCoordinator(hass, "test", "BE")
     client = EntsoeClient("test")
@@ -150,6 +189,38 @@ def test_load_sensor_timeline_from_mixed_resolution(hass):
     timeline = sensor.extra_state_attributes["timeline"]
     assert timeline == coordinator.timeline()
     assert len(timeline) == len(coordinator.data)
+
+
+def test_total_europe_load_sensor_grouping(hass):
+    coordinator = EntsoeLoadCoordinator(hass, "test", TOTAL_EUROPE_AREA)
+    timestamp = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
+    coordinator.data = {timestamp: 18250.0}
+
+    description = load_total_europe_descriptions()[0]
+
+    config_entry = type(
+        "ConfigEntry",
+        (),
+        {
+            "entry_id": "entry",
+            "options": {CONF_AREA: "BE"},
+        },
+    )()
+
+    area_name = AREA_INFO[TOTAL_EUROPE_AREA]["name"]
+    sensor = EntsoeLoadSensor(coordinator, description, config_entry, area_name)
+    sensor.hass = hass
+
+    asyncio.run(sensor.async_update())
+
+    assert sensor.entity_id == "entsoe_data.total_europe_load_current"
+    assert sensor._attr_unique_id.endswith(
+        "total_europe_load.total_europe_load_current"
+    )
+    assert sensor._attr_device_info.identifiers == {
+        (DOMAIN, "entry_total_europe_load")
+    }
+    assert sensor.native_value == 18250.0
 
 
 def test_load_coordinator_handles_http_400(monkeypatch, hass):

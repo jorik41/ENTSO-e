@@ -24,10 +24,15 @@ from .const import (
     CONF_API_KEY,
     CONF_AREA,
     CONF_ENABLE_GENERATION,
+    CONF_ENABLE_GENERATION_TOTAL_EUROPE,
     CONF_ENABLE_LOAD,
+    CONF_ENABLE_LOAD_TOTAL_EUROPE,
     DEFAULT_ENABLE_GENERATION,
+    DEFAULT_ENABLE_GENERATION_TOTAL_EUROPE,
     DEFAULT_ENABLE_LOAD,
+    DEFAULT_ENABLE_LOAD_TOTAL_EUROPE,
     DOMAIN,
+    TOTAL_EUROPE_AREA,
 )
 from .coordinator import (
     EntsoeGenerationCoordinator,
@@ -53,6 +58,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_ENABLE_GENERATION, DEFAULT_ENABLE_GENERATION
     )
     enable_load = entry.options.get(CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD)
+    enable_generation_total_europe = entry.options.get(
+        CONF_ENABLE_GENERATION_TOTAL_EUROPE,
+        DEFAULT_ENABLE_GENERATION_TOTAL_EUROPE,
+    )
+    enable_load_total_europe = entry.options.get(
+        CONF_ENABLE_LOAD_TOTAL_EUROPE,
+        DEFAULT_ENABLE_LOAD_TOTAL_EUROPE,
+    )
 
     data: dict[str, Any] = {}
 
@@ -72,6 +85,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         data["load"] = load_coordinator
 
+    if enable_generation_total_europe:
+        generation_europe_coordinator = EntsoeGenerationCoordinator(
+            hass,
+            api_key=api_key,
+            area=TOTAL_EUROPE_AREA,
+        )
+        data["generation_europe"] = generation_europe_coordinator
+
+    if enable_load_total_europe:
+        load_europe_coordinator = EntsoeLoadCoordinator(
+            hass,
+            api_key=api_key,
+            area=TOTAL_EUROPE_AREA,
+        )
+        data["load_europe"] = load_europe_coordinator
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = data
 
     if enable_generation:
@@ -79,6 +108,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if enable_load:
         await load_coordinator.async_config_entry_first_refresh()
+    if enable_generation_total_europe:
+        await generation_europe_coordinator.async_config_entry_first_refresh()
+
+    if enable_load_total_europe:
+        await load_europe_coordinator.async_config_entry_first_refresh()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 

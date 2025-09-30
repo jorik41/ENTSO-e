@@ -6,13 +6,24 @@ COMPONENT_TITLE = "ENTSO-e Data"
 CONF_API_KEY = "api_key"
 CONF_AREA = "area"
 CONF_ENABLE_GENERATION = "enable_generation"
+CONF_ENABLE_GENERATION_TOTAL_EUROPE = "enable_generation_total_europe"
 CONF_ENABLE_LOAD = "enable_load"
+CONF_ENABLE_LOAD_TOTAL_EUROPE = "enable_load_total_europe"
+TOTAL_EUROPE_AREA = "TOTAL_EUROPE"
 
 DEFAULT_ENABLE_GENERATION = True
 DEFAULT_ENABLE_LOAD = True
+DEFAULT_ENABLE_GENERATION_TOTAL_EUROPE = False
+DEFAULT_ENABLE_LOAD_TOTAL_EUROPE = False
 
 # Commented ones are not working at entsoe
 AREA_INFO = {
+    TOTAL_EUROPE_AREA: {
+        "code": "10Y1001A1001A876",
+        "name": "Total Europe",
+        "VAT": 0.0,
+        "Currency": "EUR",
+    },
     "AT": {"code": "AT", "name": "Austria", "VAT": 0.21, "Currency": "EUR"},
     "BE": {"code": "BE", "name": "Belgium", "VAT": 0.06, "Currency": "EUR"},
     "BG": {"code": "BG", "name": "Bulgaria", "VAT": 0.21, "Currency": "EUR"},

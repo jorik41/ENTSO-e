@@ -14,7 +14,9 @@ from api_client import (
     PROCESS_TYPE_DAY_AHEAD,
     PROCESS_TYPE_REALISED,
     EntsoeClient,
+    Area,
 )
+from const import AREA_INFO, TOTAL_EUROPE_AREA
 
 
 DATASET_DIR = Path(__file__).parent / "datasets"
@@ -212,6 +214,12 @@ class TestDocumentParsing(unittest.TestCase):
                 datetime.fromisoformat("2024-10-07T21:00:00Z"): 79.12,
             },
         )
+
+    def test_total_europe_area_mapping(self):
+        area = Area["TOTAL_EUROPE"]
+        self.assertIn(TOTAL_EUROPE_AREA, AREA_INFO)
+        self.assertEqual(area.code, AREA_INFO[TOTAL_EUROPE_AREA]["code"])
+        self.assertEqual(area.meaning, "Total Europe")
 
     def test_parse_generation_per_type_be(self):
         with open(DATASET_DIR / "BE_generation.xml") as f:
