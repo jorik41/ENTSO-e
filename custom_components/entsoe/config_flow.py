@@ -11,7 +11,6 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.exceptions import TemplateError
 from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
@@ -49,7 +48,6 @@ from .const import (
     ENERGY_SCALES,
     UNIQUE_ID,
 )
-_LOGGER = logging.getLogger(__name__)
 
 
 def _coerce_template_string(value: Any) -> str:
@@ -306,18 +304,14 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
         template = Template(template_str, self.hass)
         context = _modifier_context(price=0)
         try:
-            rendered = await template.async_render(**context)
-            float(rendered)
-        except (TemplateError, TypeError, ValueError) as err:
-            _LOGGER.debug("Invalid modifier template '%s': %s", user_template, err)
+            await template.async_render(**context)
+        except Exception:
             return False
         return True
 
 
 class EntsoeOptionFlowHandler(OptionsFlow):
     """Handle options."""
-
-    logger = logging.getLogger(__name__)
 
     def __init__(self) -> None:
         """Initialize options flow."""
@@ -492,12 +486,12 @@ class EntsoeOptionFlowHandler(OptionsFlow):
         template = Template(template_str, self.hass)
         context = _modifier_context(price=0)
         try:
-            rendered = await template.async_render(**context)
-            float(rendered)
-        except (TemplateError, TypeError, ValueError) as err:
-            self.logger.debug("Invalid modifier template '%s': %s", user_template, err)
+            await template.async_render(**context)
+        except Exception:
             return False
         return True
+
+
 def _modifier_context(price: float, fake_dt: datetime | None = None) -> dict[str, Any]:
     """Return the shared template context for modifier validation."""
 
