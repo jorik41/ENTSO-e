@@ -49,6 +49,18 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _coerce_template_string(value: Any) -> str:
+    """Return a string representation for a template value."""
+
+    if isinstance(value, Template):
+        return value.template
+
+    if value is None:
+        return ""
+
+    return str(value)
+
+
 class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Entsoe."""
 
@@ -177,14 +189,14 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                 already_configured = True
 
             template_ok = False
-            if user_input[CONF_MODIFYER] in (None, ""):
-                user_input[CONF_MODIFYER] = DEFAULT_MODIFYER
+            modifier = _coerce_template_string(user_input.get(CONF_MODIFYER))
+            if modifier in (None, ""):
+                modifier = DEFAULT_MODIFYER
             else:
                 # Lets try to remove the most common mistakes, this will still fail if the template
                 # was writte in notepad or something like that..
-                user_input[CONF_MODIFYER] = re.sub(
-                    r"\s{2,}", "", user_input[CONF_MODIFYER]
-                )
+                modifier = re.sub(r"\s{2,}", "", modifier)
+            user_input[CONF_MODIFYER] = modifier
             if user_input[CONF_CURRENCY] in (None, ""):
                 user_input[CONF_CURRENCY] = DEFAULT_CURRENCY
 
@@ -285,7 +297,10 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
         )
 
     async def _valid_template(self, user_template):
-        template = Template(user_template, self.hass)
+        template_str = _coerce_template_string(user_template)
+        if not template_str:
+            template_str = DEFAULT_MODIFYER
+        template = Template(template_str, self.hass)
         try:
             rendered = await template.async_render(current_price=0)
             float(rendered)
@@ -337,14 +352,14 @@ class EntsoeOptionFlowHandler(OptionsFlow):
                 self.config_entry.options.get(CONF_AGGREGATE_EUROPE, False),
             )
             template_ok = False
-            if user_input[CONF_MODIFYER] in (None, ""):
-                user_input[CONF_MODIFYER] = DEFAULT_MODIFYER
+            modifier = _coerce_template_string(user_input.get(CONF_MODIFYER))
+            if modifier in (None, ""):
+                modifier = DEFAULT_MODIFYER
             else:
                 # Lets try to remove the most common mistakes, this will still fail if the template
                 # was written in notepad or something like that..
-                user_input[CONF_MODIFYER] = re.sub(
-                    r"\s{2,}", "", user_input[CONF_MODIFYER]
-                )
+                modifier = re.sub(r"\s{2,}", "", modifier)
+            user_input[CONF_MODIFYER] = modifier
             if user_input[CONF_CURRENCY] in (None, ""):
                 user_input[CONF_CURRENCY] = DEFAULT_CURRENCY
 
@@ -463,7 +478,10 @@ class EntsoeOptionFlowHandler(OptionsFlow):
         )
 
     async def _valid_template(self, user_template):
-        template = Template(user_template, self.hass)
+        template_str = _coerce_template_string(user_template)
+        if not template_str:
+            template_str = DEFAULT_MODIFYER
+        template = Template(template_str, self.hass)
         try:
             rendered = await template.async_render(current_price=0)
             float(rendered)
