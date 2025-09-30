@@ -1,5 +1,5 @@
 ATTRIBUTION = "Data provided by ENTSO-e Transparency Platform"
-DOMAIN = "entsoe"
+DOMAIN = "entsoe_data"
 UNIQUE_ID = f"{DOMAIN}_component"
 COMPONENT_TITLE = "ENTSO-e Data"
 
