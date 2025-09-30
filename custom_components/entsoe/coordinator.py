@@ -73,10 +73,6 @@ class EntsoeCoordinator(DataUpdateCoordinator):
         """Calculate price based on the users settings."""
         # Used to inject the current hour.
         # so template can be simplified using now
-        if no_template:
-            price = round(value / ENERGY_SCALES[self.energy_scale], 5)
-            return price
-
         price = value / ENERGY_SCALES[self.energy_scale]
 
         def faker(target_dt):
@@ -95,6 +91,9 @@ class EntsoeCoordinator(DataUpdateCoordinator):
             "current_price": price,
             "now": faker(aligned_dt),
         }
+
+        if no_template:
+            return round(price, 5)
 
         template_value = self.modifyer.async_render(**context)
 

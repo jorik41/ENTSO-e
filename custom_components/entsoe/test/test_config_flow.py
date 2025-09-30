@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from custom_components.entsoe.config_flow import (
@@ -31,6 +32,20 @@ from custom_components.entsoe.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import TemplateError
 from homeassistant.helpers.template import Template
+from homeassistant.util import dt as dt_util
+
+
+def _capture_render_call(monkeypatch, expected_now):
+    captured = {}
+
+    async def capture(self, **kwargs):
+        captured.update(kwargs)
+        return "0"
+
+    monkeypatch.setattr(Template, "async_render", capture, raising=False)
+    monkeypatch.setattr(dt_util, "now", lambda: expected_now)
+
+    return captured
 
 
 def test_async_step_extra_rejects_template_without_current_price(monkeypatch):
@@ -62,6 +77,27 @@ def test_async_step_extra_rejects_template_without_current_price(monkeypatch):
 
     assert result["type"] == "form"
     assert result["errors"]["base"] == "invalid_template"
+
+
+def test_async_step_extra_valid_template_passes_context(monkeypatch):
+    """Valid templates receive the shared context including current_price and now."""
+
+    flow = EntsoeFlowHandler()
+    flow.hass = HomeAssistant()
+    flow.area = "DE"
+    flow.api_key = "token"
+    flow.name = "Test"
+
+    fixed_now = datetime(2024, 1, 1, 10, 15, 30, tzinfo=timezone.utc)
+    captured = _capture_render_call(monkeypatch, fixed_now)
+
+    assert asyncio.run(flow._valid_template("{{ current_price }}"))
+    assert captured["current_price"] == 0
+    assert callable(captured["now"])
+    assert (
+        captured["now"](None)
+        == fixed_now.replace(minute=0, second=0, microsecond=0)
+    )
 
 
 def test_options_flow_rejects_non_numeric_template(monkeypatch):
@@ -110,3 +146,22 @@ def test_options_flow_rejects_non_numeric_template(monkeypatch):
 
     assert result["type"] == "form"
     assert result["errors"]["base"] == "invalid_template"
+
+
+def test_options_flow_valid_template_passes_context(monkeypatch):
+    """Valid option templates receive the shared context including current_price and now."""
+
+    options_flow = EntsoeOptionFlowHandler()
+    hass = HomeAssistant()
+    options_flow.hass = hass
+
+    fixed_now = datetime(2024, 1, 1, 22, 45, 0, tzinfo=timezone.utc)
+    captured = _capture_render_call(monkeypatch, fixed_now)
+
+    assert asyncio.run(options_flow._valid_template("{{ current_price }}"))
+    assert captured["current_price"] == 0
+    assert callable(captured["now"])
+    assert (
+        captured["now"](None)
+        == fixed_now.replace(minute=0, second=0, microsecond=0)
+    )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
 import voluptuous as vol
@@ -19,6 +20,8 @@ from homeassistant.helpers.selector import (
     TemplateSelectorConfig,
 )
 from homeassistant.helpers.template import Template
+from homeassistant.util import dt
+from jinja2 import pass_context
 
 from .const import (
     AREA_INFO,
@@ -301,8 +304,9 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
         if not template_str:
             template_str = DEFAULT_MODIFYER
         template = Template(template_str, self.hass)
+        context = _modifier_context(price=0)
         try:
-            rendered = await template.async_render(current_price=0)
+            rendered = await template.async_render(**context)
             float(rendered)
         except (TemplateError, TypeError, ValueError) as err:
             _LOGGER.debug("Invalid modifier template '%s': %s", user_template, err)
@@ -482,10 +486,28 @@ class EntsoeOptionFlowHandler(OptionsFlow):
         if not template_str:
             template_str = DEFAULT_MODIFYER
         template = Template(template_str, self.hass)
+        context = _modifier_context(price=0)
         try:
-            rendered = await template.async_render(current_price=0)
+            rendered = await template.async_render(**context)
             float(rendered)
         except (TemplateError, TypeError, ValueError) as err:
             self.logger.debug("Invalid modifier template '%s': %s", user_template, err)
             return False
         return True
+def _modifier_context(price: float, fake_dt: datetime | None = None) -> dict[str, Any]:
+    """Return the shared template context for modifier validation."""
+
+    def faker(target_dt):
+        def inner(*args, **kwargs):
+            return target_dt
+
+        return pass_context(inner)
+
+    aligned_dt = (
+        fake_dt if fake_dt is not None else dt.now().replace(minute=0, second=0, microsecond=0)
+    )
+
+    return {
+        "current_price": price,
+        "now": faker(aligned_dt),
+    }
