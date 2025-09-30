@@ -100,6 +100,7 @@ class EntsoeFlowHandler(ConfigFlow, domain=DOMAIN):
                         title=title or COMPONENT_TITLE,
                         data={},
                         options=options,
+                        unique_id=unique_id,
                     )
                     await self.hass.config_entries.async_reload(
                         reconfigure_entry.entry_id
