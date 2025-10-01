@@ -85,6 +85,60 @@ def test_generation_coordinator_filters_categories(monkeypatch, hass):
     assert TOTAL_GENERATION_KEY in coordinator.categories()
 
 
+def test_generation_coordinator_total_europe_aggregates(monkeypatch, hass):
+    minimal_area_info = {
+        TOTAL_EUROPE_AREA: {"code": "10Y1001A1001A876"},
+        "DE": {"code": "DE_LU"},
+        "LU": {"code": "DE_LU"},
+        "FR": {"code": "FR"},
+    }
+    monkeypatch.setattr(
+        "custom_components.entsoe_data.coordinator.AREA_INFO",
+        minimal_area_info,
+        raising=False,
+    )
+
+    coordinator = EntsoeGenerationCoordinator(hass, "test", TOTAL_EUROPE_AREA)
+
+    timestamp = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
+    responses = {
+        "DE_LU": {
+            timestamp: {
+                "wind_onshore": 100.0,
+                "solar": 50.0,
+            }
+        },
+        "FR": {
+            timestamp: {
+                "wind_onshore": 200.0,
+                "nuclear": 300.0,
+            }
+        },
+    }
+    called_codes: list[str] = []
+
+    def _fake_query(area_code, start, end):
+        called_codes.append(area_code)
+        return responses.get(area_code, {})
+
+    monkeypatch.setattr(
+        coordinator._client, "query_generation_per_type", _fake_query
+    )
+
+    data = asyncio.run(coordinator._async_update_data())
+
+    assert data
+    assert len(called_codes) == 2
+    assert set(called_codes) == {"DE_LU", "FR"}
+
+    values = data[timestamp]
+    assert values["wind_onshore"] == pytest.approx(300.0)
+    assert values["solar"] == pytest.approx(50.0)
+    assert values["nuclear"] == pytest.approx(300.0)
+    assert values[TOTAL_GENERATION_KEY] == pytest.approx(650.0)
+    assert TOTAL_GENERATION_KEY in coordinator.categories()
+
+
 def test_generation_sensor_availability(hass):
     coordinator = EntsoeGenerationCoordinator(hass, "test", "BE")
     timestamp = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
