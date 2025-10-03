@@ -15,7 +15,9 @@ URL = "https://web-api.tp.entsoe.eu/api"
 DATETIMEFORMAT = "%Y%m%d%H00"
 
 DOCUMENT_TYPE_GENERATION_PER_TYPE = "A75"
+DOCUMENT_TYPE_GENERATION_FORECAST = "A71"
 DOCUMENT_TYPE_TOTAL_LOAD = "A65"
+DOCUMENT_TYPE_WIND_SOLAR_FORECAST = "A69"
 
 PROCESS_TYPE_REALISED = "A16"
 PROCESS_TYPE_DAY_AHEAD = "A01"
@@ -221,6 +223,52 @@ class EntsoeClient:
             print(f"Failed to retrieve data: {response.status_code}")
             return None
 
+    def query_generation_forecast(
+        self, country_code: Union[Area, str], start: datetime, end: datetime
+    ) -> Dict[datetime, float]:
+        area = Area.from_identifier(country_code)
+        params = {
+            "documentType": DOCUMENT_TYPE_GENERATION_FORECAST,
+            "processType": PROCESS_TYPE_DAY_AHEAD,
+            "in_Domain": area.code,
+            "out_Domain": area.code,
+        }
+
+        response = self._base_request(params=params, start=start, end=end)
+
+        if response.status_code == 200:
+            try:
+                return self.parse_generation_forecast_document(response.content)
+            except Exception as exc:
+                _LOGGER.debug(f"Failed to parse response content:{response.content}")
+                raise exc
+        else:
+            print(f"Failed to retrieve data: {response.status_code}")
+            return None
+
+    def query_wind_solar_forecast(
+        self, country_code: Union[Area, str], start: datetime, end: datetime
+    ) -> Dict[datetime, Dict[str, float]]:
+        area = Area.from_identifier(country_code)
+        params = {
+            "documentType": DOCUMENT_TYPE_WIND_SOLAR_FORECAST,
+            "processType": PROCESS_TYPE_DAY_AHEAD,
+            "in_Domain": area.code,
+            "out_Domain": area.code,
+        }
+
+        response = self._base_request(params=params, start=start, end=end)
+
+        if response.status_code == 200:
+            try:
+                return self.parse_wind_solar_document(response.content)
+            except Exception as exc:
+                _LOGGER.debug(f"Failed to parse response content:{response.content}")
+                raise exc
+        else:
+            print(f"Failed to retrieve data: {response.status_code}")
+            return None
+
     # lets process the received document
     def parse_price_document(self, document: str) -> str:
 
@@ -383,6 +431,99 @@ class EntsoeClient:
         result: Dict[datetime, Dict[str, float]] = {}
         for timestamp in sorted(generation.keys()):
             result[timestamp] = dict(sorted(generation[timestamp].items()))
+
+        return result
+
+    def parse_generation_forecast_document(self, document: str) -> Dict[datetime, float]:
+        root = self._remove_namespace(ET.fromstring(document))
+        forecast = defaultdict(float)
+
+        for timeseries in root.findall(".//TimeSeries"):
+            for period in timeseries.findall(".//Period"):
+                resolution_raw = period.find(".//resolution").text
+
+                try:
+                    resolution = self._normalize_resolution(resolution_raw)
+                except ValueError:
+                    continue
+
+                start_time = self._parse_timestamp(
+                    period.find(".//timeInterval/start").text
+                )
+                end_time = self._parse_timestamp(
+                    period.find(".//timeInterval/end").text
+                )
+
+                if resolution == "PT60M":
+                    points = self.process_PT60M_points(
+                        period,
+                        start_time,
+                        value_tag="quantity",
+                        round_digits=None,
+                    )
+                else:
+                    points = self.process_PT15M_points(
+                        period,
+                        start_time,
+                        value_tag="quantity",
+                        round_digits=None,
+                    )
+
+                points = self._fill_missing_hours(points, start_time, end_time)
+
+                for timestamp, value in points.items():
+                    forecast[timestamp] += value
+
+        return {timestamp: float(forecast[timestamp]) for timestamp in sorted(forecast)}
+
+    def parse_wind_solar_document(
+        self, document: str
+    ) -> Dict[datetime, Dict[str, float]]:
+        root = self._remove_namespace(ET.fromstring(document))
+        forecast = defaultdict(lambda: defaultdict(float))
+
+        for timeseries in root.findall(".//TimeSeries"):
+            psr_type = timeseries.findtext(".//MktPSRType/psrType")
+            category = PSR_CATEGORY_MAPPING.get(psr_type, "other")
+
+            for period in timeseries.findall(".//Period"):
+                resolution_raw = period.find(".//resolution").text
+
+                try:
+                    resolution = self._normalize_resolution(resolution_raw)
+                except ValueError:
+                    continue
+
+                start_time = self._parse_timestamp(
+                    period.find(".//timeInterval/start").text
+                )
+                end_time = self._parse_timestamp(
+                    period.find(".//timeInterval/end").text
+                )
+
+                if resolution == "PT60M":
+                    points = self.process_PT60M_points(
+                        period,
+                        start_time,
+                        value_tag="quantity",
+                        round_digits=None,
+                    )
+                else:
+                    points = self.process_PT15M_points(
+                        period,
+                        start_time,
+                        value_tag="quantity",
+                        round_digits=None,
+                    )
+
+                points = self._fill_missing_hours(points, start_time, end_time)
+
+                for timestamp, value in points.items():
+                    forecast[timestamp][category] += value
+
+        result: Dict[datetime, Dict[str, float]] = {}
+        for timestamp in sorted(forecast.keys()):
+            result[timestamp] = dict(sorted(forecast[timestamp].items()))
 
         return result
 

@@ -26,19 +26,25 @@ from .const import (
     CONF_ENABLE_EUROPE_GENERATION,
     CONF_ENABLE_EUROPE_LOAD,
     CONF_ENABLE_GENERATION,
+    CONF_ENABLE_GENERATION_FORECAST,
     CONF_ENABLE_GENERATION_TOTAL_EUROPE,
     CONF_ENABLE_LOAD,
+    CONF_ENABLE_WIND_SOLAR_FORECAST,
     CONF_ENABLE_LOAD_TOTAL_EUROPE,
     DEFAULT_ENABLE_EUROPE_GENERATION,
     DEFAULT_ENABLE_EUROPE_LOAD,
     DEFAULT_ENABLE_GENERATION,
+    DEFAULT_ENABLE_GENERATION_FORECAST,
     DEFAULT_ENABLE_LOAD,
+    DEFAULT_ENABLE_WIND_SOLAR_FORECAST,
     DOMAIN,
     TOTAL_EUROPE_AREA,
 )
 from .coordinator import (
     EntsoeGenerationCoordinator,
+    EntsoeGenerationForecastCoordinator,
     EntsoeLoadCoordinator,
+    EntsoeWindSolarForecastCoordinator,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,6 +76,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_ENABLE_EUROPE_LOAD,
         entry.options.get(CONF_ENABLE_LOAD_TOTAL_EUROPE, DEFAULT_ENABLE_EUROPE_LOAD),
     )
+    enable_generation_forecast = entry.options.get(
+        CONF_ENABLE_GENERATION_FORECAST, DEFAULT_ENABLE_GENERATION_FORECAST
+    )
+    enable_wind_solar_forecast = entry.options.get(
+        CONF_ENABLE_WIND_SOLAR_FORECAST, DEFAULT_ENABLE_WIND_SOLAR_FORECAST
+    )
 
     data: dict[str, Any] = {}
 
@@ -88,6 +100,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             area=area,
         )
         data["load"] = load_coordinator
+
+    if enable_generation_forecast:
+        generation_forecast_coordinator = EntsoeGenerationForecastCoordinator(
+            hass,
+            api_key=api_key,
+            area=area,
+        )
+        data["generation_forecast"] = generation_forecast_coordinator
+
+    if enable_wind_solar_forecast:
+        wind_solar_forecast_coordinator = EntsoeWindSolarForecastCoordinator(
+            hass,
+            api_key=api_key,
+            area=area,
+        )
+        data["wind_solar_forecast"] = wind_solar_forecast_coordinator
 
     if enable_europe_generation:
         generation_europe_coordinator = EntsoeGenerationCoordinator(
@@ -112,6 +140,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if enable_load:
         await load_coordinator.async_config_entry_first_refresh()
+    if enable_generation_forecast:
+        await generation_forecast_coordinator.async_config_entry_first_refresh()
+    if enable_wind_solar_forecast:
+        await wind_solar_forecast_coordinator.async_config_entry_first_refresh()
     if enable_europe_generation:
         await generation_europe_coordinator.async_config_entry_first_refresh()
 

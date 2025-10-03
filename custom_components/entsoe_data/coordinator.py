@@ -248,3 +248,146 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
             timestamp.isoformat(): float(value)
             for timestamp, value in sorted(self.data.items())
         }
+
+
+class EntsoeGenerationForecastCoordinator(EntsoeBaseCoordinator):
+    """Coordinator handling generation forecast queries."""
+
+    def __init__(self, hass: HomeAssistant, api_key: str, area: str) -> None:
+        self.api_key = api_key
+        self.area = AREA_INFO[area]["code"]
+        self._client = EntsoeClient(api_key=api_key)
+        logger = logging.getLogger(f"{__name__}.generation_forecast")
+        super().__init__(
+            hass,
+            logger,
+            name="ENTSO-e generation forecast coordinator",
+            update_interval=timedelta(minutes=60),
+        )
+
+    async def _async_update_data(self) -> dict[datetime, float]:
+        start = dt.now() - timedelta(days=1)
+        end = start + timedelta(days=3)
+
+        try:
+            response: dict[datetime, float] | None = await self.hass.async_add_executor_job(
+                self._client.query_generation_forecast,
+                self.area,
+                start,
+                end,
+            )
+        except HTTPError as exc:  # pragma: no cover - matching behaviour of base coordinator
+            if getattr(exc.response, "status_code", None) == 401:
+                raise UpdateFailed("Unauthorized: Please check your API-key.") from exc
+            raise
+
+        return response or {}
+
+    def current_value(self, reference: datetime | None = None) -> float | None:
+        timestamp = self._select_current_timestamp(reference)
+        if timestamp is None or not self.data:
+            return None
+        return float(self.data[timestamp])
+
+    def next_value(self, reference: datetime | None = None) -> float | None:
+        timestamp = self._select_next_timestamp(reference)
+        if timestamp is None or not self.data:
+            return None
+        return float(self.data[timestamp])
+
+    def min_value(self) -> float | None:
+        if not self.data:
+            return None
+        return float(min(self.data.values()))
+
+    def max_value(self) -> float | None:
+        if not self.data:
+            return None
+        return float(max(self.data.values()))
+
+    def average_value(self) -> float | None:
+        if not self.data:
+            return None
+        values = list(self.data.values())
+        return float(sum(values) / len(values))
+
+    def timeline(self) -> dict[str, float]:
+        if not self.data:
+            return {}
+        return {
+            timestamp.isoformat(): float(value)
+            for timestamp, value in sorted(self.data.items())
+        }
+
+
+class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
+    """Coordinator handling wind and solar forecast queries."""
+
+    def __init__(self, hass: HomeAssistant, api_key: str, area: str) -> None:
+        self.api_key = api_key
+        self.area = AREA_INFO[area]["code"]
+        self._client = EntsoeClient(api_key=api_key)
+        self._available_categories: set[str] = set()
+        logger = logging.getLogger(f"{__name__}.wind_solar_forecast")
+        super().__init__(
+            hass,
+            logger,
+            name="ENTSO-e wind and solar forecast coordinator",
+            update_interval=timedelta(minutes=60),
+        )
+
+    async def _async_update_data(self) -> dict[datetime, dict[str, float]]:
+        start = dt.now() - timedelta(days=1)
+        end = start + timedelta(days=3)
+
+        try:
+            response: dict[datetime, dict[str, float]] | None = (
+                await self.hass.async_add_executor_job(
+                    self._client.query_wind_solar_forecast,
+                    self.area,
+                    start,
+                    end,
+                )
+            )
+        except HTTPError as exc:  # pragma: no cover - matching behaviour of base coordinator
+            if getattr(exc.response, "status_code", None) == 401:
+                raise UpdateFailed("Unauthorized: Please check your API-key.") from exc
+            raise
+
+        if not response:
+            self._available_categories = set()
+            return {}
+
+        normalized: dict[datetime, dict[str, float]] = {}
+        categories: set[str] = set()
+        for timestamp, values in response.items():
+            normalized[timestamp] = dict(values)
+            categories.update(values.keys())
+
+        self._available_categories = categories
+        return normalized
+
+    def categories(self) -> list[str]:
+        return sorted(self._available_categories)
+
+    def current_value(self, category: str, reference: datetime | None = None) -> float | None:
+        timestamp = self._select_current_timestamp(reference)
+        if timestamp is None or not self.data:
+            return None
+        return self.data.get(timestamp, {}).get(category)
+
+    def next_value(self, category: str, reference: datetime | None = None) -> float | None:
+        timestamp = self._select_next_timestamp(reference)
+        if timestamp is None or not self.data:
+            return None
+        return self.data.get(timestamp, {}).get(category)
+
+    def timeline(self, category: str) -> dict[str, float]:
+        if not self.data:
+            return {}
+        timeline: dict[str, float] = {}
+        for timestamp, values in sorted(self.data.items()):
+            if category not in values:
+                continue
+            timeline[timestamp.isoformat()] = float(values[category])
+        return timeline

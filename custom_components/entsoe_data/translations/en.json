@@ -11,6 +11,8 @@
           "area": "Area*",
           "enable_generation": "Enable generation mix sensors",
           "enable_load": "Enable load forecast sensors",
+          "enable_generation_forecast": "Enable generation forecast sensors",
+          "enable_wind_solar_forecast": "Enable wind and solar forecast sensors",
           "enable_europe_generation": "Enable Total Europe generation sensors",
           "enable_europe_load": "Enable Total Europe load sensors"
         }
@@ -29,6 +31,8 @@
           "area": "Area*",
           "enable_generation": "Enable generation mix sensors",
           "enable_load": "Enable load forecast sensors",
+          "enable_generation_forecast": "Enable generation forecast sensors",
+          "enable_wind_solar_forecast": "Enable wind and solar forecast sensors",
           "enable_europe_generation": "Enable Total Europe generation sensors",
           "enable_europe_load": "Enable Total Europe load sensors"
         }

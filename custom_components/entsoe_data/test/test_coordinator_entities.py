@@ -14,16 +14,22 @@ from custom_components.entsoe_data.api_client import EntsoeClient
 from custom_components.entsoe_data.const import AREA_INFO, CONF_AREA, DOMAIN, TOTAL_EUROPE_AREA
 from custom_components.entsoe_data.coordinator import (
     EntsoeGenerationCoordinator,
+    EntsoeGenerationForecastCoordinator,
     EntsoeLoadCoordinator,
+    EntsoeWindSolarForecastCoordinator,
 )
 from custom_components.entsoe_data.sensor import (
     TOTAL_GENERATION_KEY,
     EntsoeGenerationSensor,
+    EntsoeGenerationForecastSensor,
     EntsoeLoadSensor,
+    EntsoeWindSolarForecastSensor,
+    generation_forecast_sensor_descriptions,
     generation_sensor_descriptions,
     generation_total_europe_descriptions,
     load_sensor_descriptions,
     load_total_europe_descriptions,
+    wind_solar_sensor_descriptions,
 )
 
 DATASET_DIR = Path(__file__).parent / "datasets"
@@ -292,5 +298,72 @@ def test_load_coordinator_handles_http_400(monkeypatch, hass):
     data = asyncio.run(coordinator._async_update_data())
 
     assert data == {}
+
+
+def test_generation_forecast_sensor_attrs(hass):
+    coordinator = EntsoeGenerationForecastCoordinator(hass, "test", "BE")
+    timestamp = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
+    next_timestamp = timestamp + timedelta(hours=1)
+    coordinator.data = {
+        timestamp: 1450.0,
+        next_timestamp: 1500.0,
+    }
+
+    description = generation_forecast_sensor_descriptions()[0]
+
+    config_entry = type(
+        "ConfigEntry",
+        (),
+        {
+            "entry_id": "entry",
+            "options": {CONF_AREA: "BE"},
+        },
+    )()
+
+    sensor = EntsoeGenerationForecastSensor(
+        coordinator, description, config_entry, "Belgium"
+    )
+    sensor.hass = hass
+
+    asyncio.run(sensor.async_update())
+
+    assert sensor.native_value == 1450.0
+    attrs = sensor.extra_state_attributes
+    assert attrs["timeline"] == coordinator.timeline()
+    assert attrs["next_value"] == 1500.0
+
+
+def test_wind_solar_sensor_category_handling(hass):
+    coordinator = EntsoeWindSolarForecastCoordinator(hass, "test", "BE")
+    timestamp = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
+    coordinator.data = {
+        timestamp: {"solar": 320.0, "wind_onshore": 450.0},
+        timestamp + timedelta(hours=1): {"solar": 330.0},
+    }
+    coordinator._available_categories = {"solar", "wind_onshore"}
+
+    descriptions = wind_solar_sensor_descriptions(coordinator)
+    description = next(desc for desc in descriptions if desc.category == "solar")
+
+    config_entry = type(
+        "ConfigEntry",
+        (),
+        {
+            "entry_id": "entry",
+            "options": {CONF_AREA: "BE"},
+        },
+    )()
+
+    sensor = EntsoeWindSolarForecastSensor(
+        coordinator, description, config_entry, "Belgium"
+    )
+    sensor.hass = hass
+
+    asyncio.run(sensor.async_update())
+
+    assert sensor.native_value == 320.0
+    attrs = sensor.extra_state_attributes
+    assert attrs["timeline"] == coordinator.timeline("solar")
+    assert attrs["next_value"] == 330.0
 
 

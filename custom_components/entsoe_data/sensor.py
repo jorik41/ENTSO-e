@@ -32,7 +32,9 @@ from .const import (
 )
 from .coordinator import (
     EntsoeGenerationCoordinator,
+    EntsoeGenerationForecastCoordinator,
     EntsoeLoadCoordinator,
+    EntsoeWindSolarForecastCoordinator,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,6 +48,9 @@ GENERATION_EUROPE_DEVICE_SUFFIX = f"{TOTAL_EUROPE_CONTEXT}_{GENERATION_DEVICE_SU
 LOAD_EUROPE_DEVICE_SUFFIX = f"{TOTAL_EUROPE_CONTEXT}_{LOAD_DEVICE_SUFFIX}"
 TOTAL_GENERATION_KEY = "total_generation"
 DEFAULT_GENERATION_CATEGORIES = sorted(set(PSR_CATEGORY_MAPPING.values()))
+GENERATION_FORECAST_DEVICE_SUFFIX = "generation_forecast"
+WIND_SOLAR_DEVICE_SUFFIX = "wind_solar_forecast"
+DEFAULT_WIND_SOLAR_CATEGORIES = ["solar", "wind_offshore", "wind_onshore"]
 
 @dataclass
 class EntsoeGenerationEntityDescription(SensorEntityDescription):
@@ -64,6 +69,29 @@ class EntsoeLoadEntityDescription(SensorEntityDescription):
     value_fn: Callable[[EntsoeLoadCoordinator], StateType] | None = None
     attrs_fn: Callable[[EntsoeLoadCoordinator], dict[str, Any]] | None = None
     device_suffix: str = LOAD_DEVICE_SUFFIX
+
+
+@dataclass
+class EntsoeGenerationForecastEntityDescription(SensorEntityDescription):
+    """Describes ENTSO-e generation forecast sensor entity."""
+
+    value_fn: Callable[[EntsoeGenerationForecastCoordinator], StateType] | None = None
+    attrs_fn: Callable[
+        [EntsoeGenerationForecastCoordinator], dict[str, Any]
+    ] | None = None
+    device_suffix: str = GENERATION_FORECAST_DEVICE_SUFFIX
+
+
+@dataclass
+class EntsoeWindSolarEntityDescription(SensorEntityDescription):
+    """Describes ENTSO-e wind and solar forecast sensor entity."""
+
+    category: str = ""
+    value_fn: Callable[[EntsoeWindSolarForecastCoordinator], StateType] | None = None
+    attrs_fn: Callable[
+        [EntsoeWindSolarForecastCoordinator], dict[str, Any]
+    ] | None = None
+    device_suffix: str = WIND_SOLAR_DEVICE_SUFFIX
 
 def generation_sensor_descriptions(
     coordinator: EntsoeGenerationCoordinator,
@@ -203,6 +231,97 @@ def load_total_europe_descriptions() -> tuple[EntsoeLoadEntityDescription, ...]:
     )
 
 
+def generation_forecast_sensor_descriptions() -> tuple[
+    EntsoeGenerationForecastEntityDescription, ...
+]:
+    """Construct generation forecast sensor descriptions."""
+
+    return (
+        EntsoeGenerationForecastEntityDescription(
+            key="generation_forecast_current",
+            name="Current generation forecast",
+            native_unit_of_measurement=GENERATION_UNIT,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:factory",
+            value_fn=lambda coordinator: coordinator.current_value(),
+            attrs_fn=lambda coordinator: _generation_forecast_attrs(
+                coordinator, include_next=True
+            ),
+        ),
+        EntsoeGenerationForecastEntityDescription(
+            key="generation_forecast_next",
+            name="Next hour generation forecast",
+            native_unit_of_measurement=GENERATION_UNIT,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:factory",
+            value_fn=lambda coordinator: coordinator.next_value(),
+            attrs_fn=lambda coordinator: _generation_forecast_attrs(
+                coordinator, include_next=False
+            ),
+        ),
+        EntsoeGenerationForecastEntityDescription(
+            key="generation_forecast_min",
+            name="Minimum generation forecast",
+            native_unit_of_measurement=GENERATION_UNIT,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:arrow-collapse-down",
+            value_fn=lambda coordinator: coordinator.min_value(),
+            attrs_fn=lambda coordinator: {"timeline": coordinator.timeline()},
+        ),
+        EntsoeGenerationForecastEntityDescription(
+            key="generation_forecast_max",
+            name="Maximum generation forecast",
+            native_unit_of_measurement=GENERATION_UNIT,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:arrow-expand-up",
+            value_fn=lambda coordinator: coordinator.max_value(),
+            attrs_fn=lambda coordinator: {"timeline": coordinator.timeline()},
+        ),
+        EntsoeGenerationForecastEntityDescription(
+            key="generation_forecast_avg",
+            name="Average generation forecast",
+            native_unit_of_measurement=GENERATION_UNIT,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:chart-bell-curve",
+            value_fn=lambda coordinator: coordinator.average_value(),
+            attrs_fn=lambda coordinator: _generation_forecast_attrs(
+                coordinator, include_next=True
+            ),
+        ),
+    )
+
+
+def wind_solar_sensor_descriptions(
+    coordinator: EntsoeWindSolarForecastCoordinator,
+) -> list[EntsoeWindSolarEntityDescription]:
+    """Construct wind and solar forecast sensor descriptions."""
+
+    categories = set(DEFAULT_WIND_SOLAR_CATEGORIES)
+    categories.update(coordinator.categories())
+
+    descriptions: list[EntsoeWindSolarEntityDescription] = []
+    for category in sorted(categories):
+        key = f"wind_solar_{category}"
+        name = f"{_format_category_name(category).title()} forecast"
+        descriptions.append(
+            EntsoeWindSolarEntityDescription(
+                key=key,
+                name=name,
+                native_unit_of_measurement=GENERATION_UNIT,
+                state_class=SensorStateClass.MEASUREMENT,
+                icon="mdi:weather-windy"
+                if "wind" in category
+                else "mdi:weather-sunny",
+                category=category,
+                value_fn=lambda coordinator, cat=category: coordinator.current_value(cat),
+                attrs_fn=lambda coordinator, cat=category: _wind_solar_attrs(
+                    coordinator, cat
+                ),
+            )
+        )
+    return descriptions
+
+
 def _load_attrs(
     coordinator: EntsoeLoadCoordinator, include_next: bool
 ) -> dict[str, Any]:
@@ -213,6 +332,39 @@ def _load_attrs(
         next_value = coordinator.next_value()
         if next_value is not None:
             attrs["next_value"] = next_value
+    if current_ts:
+        attrs["current_timestamp"] = current_ts.isoformat()
+    if next_ts:
+        attrs["next_timestamp"] = next_ts.isoformat()
+    return attrs
+
+
+def _generation_forecast_attrs(
+    coordinator: EntsoeGenerationForecastCoordinator, include_next: bool
+) -> dict[str, Any]:
+    attrs: dict[str, Any] = {"timeline": coordinator.timeline()}
+    current_ts = coordinator.current_timestamp()
+    next_ts = coordinator.next_timestamp()
+    if include_next:
+        next_value = coordinator.next_value()
+        if next_value is not None:
+            attrs["next_value"] = next_value
+    if current_ts:
+        attrs["current_timestamp"] = current_ts.isoformat()
+    if next_ts:
+        attrs["next_timestamp"] = next_ts.isoformat()
+    return attrs
+
+
+def _wind_solar_attrs(
+    coordinator: EntsoeWindSolarForecastCoordinator, category: str
+) -> dict[str, Any]:
+    attrs: dict[str, Any] = {"timeline": coordinator.timeline(category)}
+    current_ts = coordinator.current_timestamp()
+    next_ts = coordinator.next_timestamp()
+    next_value = coordinator.next_value(category)
+    if next_value is not None:
+        attrs["next_value"] = next_value
     if current_ts:
         attrs["current_timestamp"] = current_ts.isoformat()
     if next_ts:
@@ -256,6 +408,22 @@ async def async_setup_entry(
             _create_load_sensors(
                 config_entry,
                 load_coordinator,
+            )
+        )
+
+    if generation_forecast_coordinator := coordinators.get("generation_forecast"):
+        entities.extend(
+            _create_generation_forecast_sensors(
+                config_entry,
+                generation_forecast_coordinator,
+            )
+        )
+
+    if wind_solar_forecast_coordinator := coordinators.get("wind_solar_forecast"):
+        entities.extend(
+            _create_wind_solar_sensors(
+                config_entry,
+                wind_solar_forecast_coordinator,
             )
         )
 
@@ -316,6 +484,62 @@ def _create_load_sensors(
 
     return [
         EntsoeLoadSensor(
+            coordinator,
+            description,
+            config_entry,
+            resolved_area_name,
+        )
+        for description in selected_descriptions
+    ]
+
+
+def _create_generation_forecast_sensors(
+    config_entry: ConfigEntry,
+    coordinator: EntsoeGenerationForecastCoordinator,
+    *,
+    area_name: str | None = None,
+    descriptions: tuple[
+        EntsoeGenerationForecastEntityDescription, ...
+    ] | None = None,
+) -> list[RestoreSensor]:
+    area_key = config_entry.options.get(CONF_AREA)
+    resolved_area_name = (
+        area_name
+        if area_name is not None
+        else AREA_INFO.get(area_key, {}).get("name", area_key or "")
+    )
+
+    selected_descriptions = descriptions or generation_forecast_sensor_descriptions()
+
+    return [
+        EntsoeGenerationForecastSensor(
+            coordinator,
+            description,
+            config_entry,
+            resolved_area_name,
+        )
+        for description in selected_descriptions
+    ]
+
+
+def _create_wind_solar_sensors(
+    config_entry: ConfigEntry,
+    coordinator: EntsoeWindSolarForecastCoordinator,
+    *,
+    area_name: str | None = None,
+    descriptions: list[EntsoeWindSolarEntityDescription] | None = None,
+) -> list[RestoreSensor]:
+    area_key = config_entry.options.get(CONF_AREA)
+    resolved_area_name = (
+        area_name
+        if area_name is not None
+        else AREA_INFO.get(area_key, {}).get("name", area_key or "")
+    )
+
+    selected_descriptions = descriptions or wind_solar_sensor_descriptions(coordinator)
+
+    return [
+        EntsoeWindSolarForecastSensor(
             coordinator,
             description,
             config_entry,
@@ -454,6 +678,100 @@ class EntsoeLoadSensor(_HourlyCoordinatorSensor):
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
             raise RuntimeError("No load forecast data available")
+
+        if self.entity_description.value_fn is None:
+            raise RuntimeError("Missing value function")
+
+        value = self.entity_description.value_fn(self.coordinator)
+        self._attr_native_value = value
+
+        if self.entity_description.attrs_fn is not None:
+            self._attr_extra_state_attributes = self.entity_description.attrs_fn(
+                self.coordinator
+            )
+
+
+class EntsoeGenerationForecastSensor(_HourlyCoordinatorSensor):
+    """Representation of a generation forecast sensor."""
+
+    entity_description: EntsoeGenerationForecastEntityDescription
+
+    def __init__(
+        self,
+        coordinator: EntsoeGenerationForecastCoordinator,
+        description: EntsoeGenerationForecastEntityDescription,
+        config_entry: ConfigEntry,
+        area_name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        device_suffix = description.device_suffix or GENERATION_FORECAST_DEVICE_SUFFIX
+        self._attr_unique_id = (
+            f"entsoe_data.{config_entry.entry_id}.{device_suffix}.{description.key}"
+        )
+        self._attr_name = (
+            f"{description.name} ({area_name})" if area_name else description.name
+        )
+        self._attr_icon = description.icon
+        self.entity_id = f"{DOMAIN}.{description.key}"
+        self._attr_device_info = DeviceInfo(
+            entry_type=DeviceEntryType.SERVICE,
+            identifiers={(DOMAIN, f"{config_entry.entry_id}_{device_suffix}")},
+            manufacturer="entso-e",
+            name="ENTSO-e Generation forecast"
+            + ((f" ({area_name})") if area_name else ""),
+        )
+
+    async def _async_handle_coordinator_update(self) -> None:
+        if not self.coordinator.data:
+            raise RuntimeError("No generation forecast data available")
+
+        if self.entity_description.value_fn is None:
+            raise RuntimeError("Missing value function")
+
+        value = self.entity_description.value_fn(self.coordinator)
+        self._attr_native_value = value
+
+        if self.entity_description.attrs_fn is not None:
+            self._attr_extra_state_attributes = self.entity_description.attrs_fn(
+                self.coordinator
+            )
+
+
+class EntsoeWindSolarForecastSensor(_HourlyCoordinatorSensor):
+    """Representation of a wind and solar forecast sensor."""
+
+    entity_description: EntsoeWindSolarEntityDescription
+
+    def __init__(
+        self,
+        coordinator: EntsoeWindSolarForecastCoordinator,
+        description: EntsoeWindSolarEntityDescription,
+        config_entry: ConfigEntry,
+        area_name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        device_suffix = description.device_suffix or WIND_SOLAR_DEVICE_SUFFIX
+        self._attr_unique_id = (
+            f"entsoe_data.{config_entry.entry_id}.{device_suffix}.{description.key}"
+        )
+        self._attr_name = (
+            f"{description.name} ({area_name})" if area_name else description.name
+        )
+        self._attr_icon = description.icon
+        self.entity_id = f"{DOMAIN}.{description.key}"
+        self._attr_device_info = DeviceInfo(
+            entry_type=DeviceEntryType.SERVICE,
+            identifiers={(DOMAIN, f"{config_entry.entry_id}_{device_suffix}")},
+            manufacturer="entso-e",
+            name="ENTSO-e Wind and solar forecast"
+            + ((f" ({area_name})") if area_name else ""),
+        )
+
+    async def _async_handle_coordinator_update(self) -> None:
+        if not self.coordinator.data:
+            raise RuntimeError("No wind and solar forecast data available")
 
         if self.entity_description.value_fn is None:
             raise RuntimeError("Missing value function")

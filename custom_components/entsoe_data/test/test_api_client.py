@@ -10,7 +10,9 @@ sys.path.append(str(PACKAGE_ROOT))
 
 from api_client import (
     DOCUMENT_TYPE_GENERATION_PER_TYPE,
+    DOCUMENT_TYPE_GENERATION_FORECAST,
     DOCUMENT_TYPE_TOTAL_LOAD,
+    DOCUMENT_TYPE_WIND_SOLAR_FORECAST,
     PROCESS_TYPE_DAY_AHEAD,
     PROCESS_TYPE_REALISED,
     EntsoeClient,
@@ -307,6 +309,44 @@ class TestDocumentParsing(unittest.TestCase):
             },
         )
 
+    def test_parse_generation_forecast(self):
+        with open(DATASET_DIR / "BE_generation_forecast.xml") as f:
+            document = f.read()
+
+        series = self.client.parse_generation_forecast_document(document)
+
+        self.assertDictEqual(
+            series,
+            {
+                datetime.fromisoformat("2024-10-02T00:00:00Z"): 120.0,
+                datetime.fromisoformat("2024-10-02T01:00:00Z"): 175.0,
+                datetime.fromisoformat("2024-10-02T02:00:00Z"): 180.0,
+            },
+        )
+
+    def test_parse_wind_solar_forecast(self):
+        with open(DATASET_DIR / "BE_wind_solar_forecast.xml") as f:
+            document = f.read()
+
+        series = self.client.parse_wind_solar_document(document)
+
+        self.assertDictEqual(
+            series,
+            {
+                datetime.fromisoformat("2024-10-02T00:00:00Z"): {
+                    "solar": 50.0,
+                    "wind_onshore": 80.0,
+                },
+                datetime.fromisoformat("2024-10-02T01:00:00Z"): {
+                    "solar": 60.0,
+                    "wind_onshore": 90.0,
+                },
+                datetime.fromisoformat("2024-10-02T02:00:00Z"): {
+                    "solar": 70.0,
+                },
+            },
+        )
+
     def test_query_generation_per_type_uses_process_mapping(self):
         response = MagicMock()
         response.status_code = 200
@@ -353,6 +393,50 @@ class TestDocumentParsing(unittest.TestCase):
         self.assertNotIn("in_Domain", params)
         self.assertNotIn("out_Domain", params)
         self.assertEqual(params["outBiddingZone_Domain"], "10YBE----------2")
+        parse_mock.assert_called_once()
+
+    def test_query_generation_forecast_params(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.content = b"<root />"
+
+        with patch.object(self.client, "_base_request", return_value=response) as base_mock, patch.object(
+            self.client,
+            "parse_generation_forecast_document",
+            return_value={},
+        ) as parse_mock:
+            result = self.client.query_generation_forecast(
+                "BE", datetime(2024, 10, 2), datetime(2024, 10, 3)
+            )
+
+        self.assertEqual(result, {})
+        params = base_mock.call_args.kwargs["params"]
+        self.assertEqual(params["documentType"], DOCUMENT_TYPE_GENERATION_FORECAST)
+        self.assertEqual(params["processType"], PROCESS_TYPE_DAY_AHEAD)
+        self.assertEqual(params["in_Domain"], "10YBE----------2")
+        self.assertEqual(params["out_Domain"], "10YBE----------2")
+        parse_mock.assert_called_once()
+
+    def test_query_wind_solar_forecast_params(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.content = b"<root />"
+
+        with patch.object(self.client, "_base_request", return_value=response) as base_mock, patch.object(
+            self.client,
+            "parse_wind_solar_document",
+            return_value={},
+        ) as parse_mock:
+            result = self.client.query_wind_solar_forecast(
+                "BE", datetime(2024, 10, 2), datetime(2024, 10, 3)
+            )
+
+        self.assertEqual(result, {})
+        params = base_mock.call_args.kwargs["params"]
+        self.assertEqual(params["documentType"], DOCUMENT_TYPE_WIND_SOLAR_FORECAST)
+        self.assertEqual(params["processType"], PROCESS_TYPE_DAY_AHEAD)
+        self.assertEqual(params["in_Domain"], "10YBE----------2")
+        self.assertEqual(params["out_Domain"], "10YBE----------2")
         parse_mock.assert_called_once()
 
     def test_area_from_identifier_accepts_eic_code(self):
