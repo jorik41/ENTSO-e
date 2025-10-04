@@ -325,6 +325,7 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
 
     def __init__(self, hass: HomeAssistant, api_key: str, area: str) -> None:
         self.api_key = api_key
+        self.area_key = area
         self.area = AREA_INFO[area]["code"]
         self._client = EntsoeClient(api_key=api_key)
         self._available_categories: set[str] = set()
@@ -341,14 +342,19 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
         end = start + timedelta(days=3)
 
         try:
-            response: dict[datetime, dict[str, float]] | None = (
-                await self.hass.async_add_executor_job(
+            if self.area_key == TOTAL_EUROPE_AREA:
+                response = await self.hass.async_add_executor_job(
+                    self._query_total_europe_wind_solar_forecast,
+                    start,
+                    end,
+                )
+            else:
+                response = await self.hass.async_add_executor_job(
                     self._client.query_wind_solar_forecast,
                     self.area,
                     start,
                     end,
                 )
-            )
         except HTTPError as exc:  # pragma: no cover - matching behaviour of base coordinator
             if getattr(exc.response, "status_code", None) == 401:
                 raise UpdateFailed("Unauthorized: Please check your API-key.") from exc
@@ -366,6 +372,33 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
 
         self._available_categories = categories
         return normalized
+
+    def _query_total_europe_wind_solar_forecast(
+        self, start: datetime, end: datetime
+    ) -> dict[datetime, dict[str, float]]:
+        aggregate: defaultdict[datetime, defaultdict[str, float]] = defaultdict(
+            lambda: defaultdict(float)
+        )
+        seen_codes: set[str] = set()
+
+        for area_key, info in AREA_INFO.items():
+            if area_key == TOTAL_EUROPE_AREA:
+                continue
+
+            code = info["code"]
+            if code in seen_codes:
+                continue
+            seen_codes.add(code)
+
+            response = self._client.query_wind_solar_forecast(code, start, end)
+            if not response:
+                continue
+
+            for timestamp, values in response.items():
+                for category, value in values.items():
+                    aggregate[timestamp][category] += value
+
+        return {timestamp: dict(values) for timestamp, values in aggregate.items()}
 
     def categories(self) -> list[str]:
         return sorted(self._available_categories)

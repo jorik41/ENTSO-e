@@ -30,6 +30,7 @@ from custom_components.entsoe_data.sensor import (
     load_sensor_descriptions,
     load_total_europe_descriptions,
     wind_solar_sensor_descriptions,
+    wind_solar_total_europe_descriptions,
 )
 
 DATASET_DIR = Path(__file__).parent / "datasets"
@@ -145,6 +146,59 @@ def test_generation_coordinator_total_europe_aggregates(monkeypatch, hass):
     assert TOTAL_GENERATION_KEY in coordinator.categories()
 
 
+def test_wind_solar_coordinator_total_europe_aggregates(monkeypatch, hass):
+    minimal_area_info = {
+        TOTAL_EUROPE_AREA: {"code": "10Y1001A1001A876"},
+        "DE": {"code": "DE_LU"},
+        "LU": {"code": "DE_LU"},
+        "FR": {"code": "FR"},
+    }
+    monkeypatch.setattr(
+        "custom_components.entsoe_data.coordinator.AREA_INFO",
+        minimal_area_info,
+        raising=False,
+    )
+
+    coordinator = EntsoeWindSolarForecastCoordinator(hass, "test", TOTAL_EUROPE_AREA)
+
+    timestamp = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
+    responses = {
+        "DE_LU": {
+            timestamp: {
+                "wind_onshore": 20.0,
+                "solar": 10.0,
+            }
+        },
+        "FR": {
+            timestamp: {
+                "wind_offshore": 5.0,
+                "solar": 30.0,
+            }
+        },
+    }
+    called_codes: list[str] = []
+
+    def _fake_query(area_code, start, end):
+        called_codes.append(area_code)
+        return responses.get(area_code, {})
+
+    monkeypatch.setattr(
+        coordinator._client, "query_wind_solar_forecast", _fake_query
+    )
+
+    data = asyncio.run(coordinator._async_update_data())
+
+    assert data
+    assert len(called_codes) == 2
+    assert set(called_codes) == {"DE_LU", "FR"}
+
+    values = data[timestamp]
+    assert values["wind_onshore"] == pytest.approx(20.0)
+    assert values["wind_offshore"] == pytest.approx(5.0)
+    assert values["solar"] == pytest.approx(40.0)
+    assert set(coordinator.categories()) == {"wind_offshore", "wind_onshore", "solar"}
+
+
 def test_generation_sensor_availability(hass):
     coordinator = EntsoeGenerationCoordinator(hass, "test", "BE")
     timestamp = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
@@ -219,6 +273,46 @@ def test_total_europe_generation_sensor_grouping(hass):
         (DOMAIN, "entry_total_europe_generation")
     }
     assert sensor.native_value == 6400.0
+
+
+def test_total_europe_wind_solar_sensor_grouping(hass):
+    coordinator = EntsoeWindSolarForecastCoordinator(hass, "test", TOTAL_EUROPE_AREA)
+    timestamp = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
+    coordinator.data = {
+        timestamp: {
+            "solar": 320.0,
+        }
+    }
+    coordinator._available_categories = {"solar"}
+
+    descriptions = wind_solar_total_europe_descriptions(coordinator)
+    description = next(desc for desc in descriptions if desc.category == "solar")
+
+    config_entry = type(
+        "ConfigEntry",
+        (),
+        {
+            "entry_id": "entry",
+            "options": {CONF_AREA: "BE"},
+        },
+    )()
+
+    area_name = AREA_INFO[TOTAL_EUROPE_AREA]["name"]
+    sensor = EntsoeWindSolarForecastSensor(
+        coordinator, description, config_entry, area_name
+    )
+    sensor.hass = hass
+
+    asyncio.run(sensor.async_update())
+
+    assert sensor.entity_id == "entsoe_data.total_europe_wind_solar_solar"
+    assert sensor._attr_unique_id.endswith(
+        "total_europe_wind_solar_forecast.total_europe_wind_solar_solar"
+    )
+    assert sensor._attr_device_info.identifiers == {
+        (DOMAIN, "entry_total_europe_wind_solar_forecast")
+    }
+    assert sensor.native_value == 320.0
 
 
 def test_load_sensor_timeline_from_mixed_resolution(hass):

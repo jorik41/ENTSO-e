@@ -25,6 +25,7 @@ from .const import (
     CONF_AREA,
     CONF_ENABLE_EUROPE_GENERATION,
     CONF_ENABLE_EUROPE_LOAD,
+    CONF_ENABLE_EUROPE_WIND_SOLAR_FORECAST,
     CONF_ENABLE_GENERATION,
     CONF_ENABLE_GENERATION_FORECAST,
     CONF_ENABLE_GENERATION_TOTAL_EUROPE,
@@ -33,6 +34,7 @@ from .const import (
     CONF_ENABLE_LOAD_TOTAL_EUROPE,
     DEFAULT_ENABLE_EUROPE_GENERATION,
     DEFAULT_ENABLE_EUROPE_LOAD,
+    DEFAULT_ENABLE_EUROPE_WIND_SOLAR_FORECAST,
     DEFAULT_ENABLE_GENERATION,
     DEFAULT_ENABLE_GENERATION_FORECAST,
     DEFAULT_ENABLE_LOAD,
@@ -82,6 +84,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     enable_wind_solar_forecast = entry.options.get(
         CONF_ENABLE_WIND_SOLAR_FORECAST, DEFAULT_ENABLE_WIND_SOLAR_FORECAST
     )
+    enable_europe_wind_solar_forecast = entry.options.get(
+        CONF_ENABLE_EUROPE_WIND_SOLAR_FORECAST,
+        DEFAULT_ENABLE_EUROPE_WIND_SOLAR_FORECAST,
+    )
 
     data: dict[str, Any] = {}
 
@@ -117,6 +123,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         data["wind_solar_forecast"] = wind_solar_forecast_coordinator
 
+    if enable_europe_wind_solar_forecast:
+        wind_solar_forecast_europe_coordinator = (
+            EntsoeWindSolarForecastCoordinator(
+                hass,
+                api_key=api_key,
+                area=TOTAL_EUROPE_AREA,
+            )
+        )
+        data["wind_solar_forecast_europe"] = (
+            wind_solar_forecast_europe_coordinator
+        )
+
     if enable_europe_generation:
         generation_europe_coordinator = EntsoeGenerationCoordinator(
             hass,
@@ -144,6 +162,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await generation_forecast_coordinator.async_config_entry_first_refresh()
     if enable_wind_solar_forecast:
         await wind_solar_forecast_coordinator.async_config_entry_first_refresh()
+    if enable_europe_wind_solar_forecast:
+        await wind_solar_forecast_europe_coordinator.async_config_entry_first_refresh()
     if enable_europe_generation:
         await generation_europe_coordinator.async_config_entry_first_refresh()
 
