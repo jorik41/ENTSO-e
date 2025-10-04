@@ -19,34 +19,34 @@ from .const import (
     CONF_API_KEY,
     CONF_AREA,
     CONF_ENABLE_EUROPE_GENERATION,
-    CONF_ENABLE_EUROPE_LOAD,
     CONF_ENABLE_EUROPE_WIND_SOLAR_FORECAST,
     CONF_ENABLE_GENERATION,
     CONF_ENABLE_GENERATION_FORECAST,
     CONF_ENABLE_GENERATION_TOTAL_EUROPE,
-    CONF_ENABLE_LOAD,
     CONF_ENABLE_WIND_SOLAR_FORECAST,
-    CONF_ENABLE_LOAD_TOTAL_EUROPE,
     DEFAULT_ENABLE_EUROPE_GENERATION,
-    DEFAULT_ENABLE_EUROPE_LOAD,
     DEFAULT_ENABLE_EUROPE_WIND_SOLAR_FORECAST,
     DEFAULT_ENABLE_GENERATION,
     DEFAULT_ENABLE_GENERATION_FORECAST,
-    DEFAULT_ENABLE_LOAD,
     DEFAULT_ENABLE_WIND_SOLAR_FORECAST,
     DOMAIN,
+    LOAD_FORECAST_HORIZONS,
+    LOAD_FORECAST_OPTION_KEYS,
+    LOAD_FORECAST_EUROPE_OPTION_KEYS,
     UNIQUE_ID,
 )
 
 
 SENSOR_FLAG_KEYS: tuple[str, ...] = (
-    CONF_ENABLE_GENERATION,
-    CONF_ENABLE_LOAD,
-    CONF_ENABLE_GENERATION_FORECAST,
-    CONF_ENABLE_WIND_SOLAR_FORECAST,
-    CONF_ENABLE_EUROPE_GENERATION,
-    CONF_ENABLE_EUROPE_LOAD,
-    CONF_ENABLE_EUROPE_WIND_SOLAR_FORECAST,
+    (CONF_ENABLE_GENERATION,)
+    + LOAD_FORECAST_OPTION_KEYS
+    + (
+        CONF_ENABLE_GENERATION_FORECAST,
+        CONF_ENABLE_WIND_SOLAR_FORECAST,
+        CONF_ENABLE_EUROPE_GENERATION,
+    )
+    + LOAD_FORECAST_EUROPE_OPTION_KEYS
+    + (CONF_ENABLE_EUROPE_WIND_SOLAR_FORECAST,)
 )
 
 
@@ -55,13 +55,12 @@ def _build_defaults(options: dict[str, Any] | None) -> dict[str, Any]:
 
     options = options or {}
 
-    return {
+    defaults = {
         CONF_API_KEY: options.get(CONF_API_KEY, ""),
         CONF_AREA: options.get(CONF_AREA),
         CONF_ENABLE_GENERATION: options.get(
             CONF_ENABLE_GENERATION, DEFAULT_ENABLE_GENERATION
         ),
-        CONF_ENABLE_LOAD: options.get(CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD),
         CONF_ENABLE_GENERATION_FORECAST: options.get(
             CONF_ENABLE_GENERATION_FORECAST, DEFAULT_ENABLE_GENERATION_FORECAST
         ),
@@ -75,17 +74,29 @@ def _build_defaults(options: dict[str, Any] | None) -> dict[str, Any]:
                 DEFAULT_ENABLE_EUROPE_GENERATION,
             ),
         ),
-        CONF_ENABLE_EUROPE_LOAD: options.get(
-            CONF_ENABLE_EUROPE_LOAD,
-            options.get(
-                CONF_ENABLE_LOAD_TOTAL_EUROPE, DEFAULT_ENABLE_EUROPE_LOAD
-            ),
-        ),
         CONF_ENABLE_EUROPE_WIND_SOLAR_FORECAST: options.get(
             CONF_ENABLE_EUROPE_WIND_SOLAR_FORECAST,
             DEFAULT_ENABLE_EUROPE_WIND_SOLAR_FORECAST,
         ),
     }
+
+    for horizon in LOAD_FORECAST_HORIZONS:
+        defaults[horizon.option_key] = options.get(
+            horizon.option_key, horizon.default_enabled
+        )
+
+        europe_default = horizon.europe_default_enabled
+        for legacy_key in horizon.legacy_europe_option_keys:
+            if legacy_key in options:
+                europe_default = options[legacy_key]
+                break
+
+        defaults[horizon.europe_option_key] = options.get(
+            horizon.europe_option_key,
+            europe_default,
+        )
+
+    return defaults
 
 
 def _extract_sensor_values(

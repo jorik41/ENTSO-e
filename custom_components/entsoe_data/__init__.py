@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -24,22 +25,18 @@ from .const import (
     CONF_API_KEY,
     CONF_AREA,
     CONF_ENABLE_EUROPE_GENERATION,
-    CONF_ENABLE_EUROPE_LOAD,
     CONF_ENABLE_EUROPE_WIND_SOLAR_FORECAST,
     CONF_ENABLE_GENERATION,
     CONF_ENABLE_GENERATION_FORECAST,
     CONF_ENABLE_GENERATION_TOTAL_EUROPE,
-    CONF_ENABLE_LOAD,
     CONF_ENABLE_WIND_SOLAR_FORECAST,
-    CONF_ENABLE_LOAD_TOTAL_EUROPE,
     DEFAULT_ENABLE_EUROPE_GENERATION,
-    DEFAULT_ENABLE_EUROPE_LOAD,
     DEFAULT_ENABLE_EUROPE_WIND_SOLAR_FORECAST,
     DEFAULT_ENABLE_GENERATION,
     DEFAULT_ENABLE_GENERATION_FORECAST,
-    DEFAULT_ENABLE_LOAD,
     DEFAULT_ENABLE_WIND_SOLAR_FORECAST,
     DOMAIN,
+    LOAD_FORECAST_HORIZONS,
     TOTAL_EUROPE_AREA,
 )
 from .coordinator import (
@@ -67,16 +64,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     enable_generation = entry.options.get(
         CONF_ENABLE_GENERATION, DEFAULT_ENABLE_GENERATION
     )
-    enable_load = entry.options.get(CONF_ENABLE_LOAD, DEFAULT_ENABLE_LOAD)
     enable_europe_generation = entry.options.get(
         CONF_ENABLE_EUROPE_GENERATION,
         entry.options.get(
             CONF_ENABLE_GENERATION_TOTAL_EUROPE, DEFAULT_ENABLE_EUROPE_GENERATION
         ),
-    )
-    enable_europe_load = entry.options.get(
-        CONF_ENABLE_EUROPE_LOAD,
-        entry.options.get(CONF_ENABLE_LOAD_TOTAL_EUROPE, DEFAULT_ENABLE_EUROPE_LOAD),
     )
     enable_generation_forecast = entry.options.get(
         CONF_ENABLE_GENERATION_FORECAST, DEFAULT_ENABLE_GENERATION_FORECAST
@@ -91,6 +83,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     data: dict[str, Any] = {}
 
+    refresh_tasks: list[Any] = []
+
     if enable_generation:
         generation_coordinator = EntsoeGenerationCoordinator(
             hass,
@@ -98,14 +92,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             area=area,
         )
         data["generation"] = generation_coordinator
-
-    if enable_load:
-        load_coordinator = EntsoeLoadCoordinator(
-            hass,
-            api_key=api_key,
-            area=area,
-        )
-        data["load"] = load_coordinator
+        refresh_tasks.append(generation_coordinator.async_config_entry_first_refresh())
 
     if enable_generation_forecast:
         generation_forecast_coordinator = EntsoeGenerationForecastCoordinator(
@@ -114,6 +101,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             area=area,
         )
         data["generation_forecast"] = generation_forecast_coordinator
+        refresh_tasks.append(
+            generation_forecast_coordinator.async_config_entry_first_refresh()
+        )
 
     if enable_wind_solar_forecast:
         wind_solar_forecast_coordinator = EntsoeWindSolarForecastCoordinator(
@@ -122,6 +112,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             area=area,
         )
         data["wind_solar_forecast"] = wind_solar_forecast_coordinator
+        refresh_tasks.append(
+            wind_solar_forecast_coordinator.async_config_entry_first_refresh()
+        )
 
     if enable_europe_wind_solar_forecast:
         wind_solar_forecast_europe_coordinator = (
@@ -134,6 +127,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data["wind_solar_forecast_europe"] = (
             wind_solar_forecast_europe_coordinator
         )
+        refresh_tasks.append(
+            wind_solar_forecast_europe_coordinator.async_config_entry_first_refresh()
+        )
 
     if enable_europe_generation:
         generation_europe_coordinator = EntsoeGenerationCoordinator(
@@ -142,33 +138,53 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             area=TOTAL_EUROPE_AREA,
         )
         data["generation_europe"] = generation_europe_coordinator
-
-    if enable_europe_load:
-        load_europe_coordinator = EntsoeLoadCoordinator(
-            hass,
-            api_key=api_key,
-            area=TOTAL_EUROPE_AREA,
+        refresh_tasks.append(
+            generation_europe_coordinator.async_config_entry_first_refresh()
         )
-        data["load_europe"] = load_europe_coordinator
+
+    for horizon in LOAD_FORECAST_HORIZONS:
+        enabled = entry.options.get(horizon.option_key, horizon.default_enabled)
+        if enabled:
+            coordinator = EntsoeLoadCoordinator(
+                hass,
+                api_key=api_key,
+                area=area,
+                process_type=horizon.process_type,
+                look_ahead=horizon.look_ahead,
+                update_interval=horizon.update_interval,
+                horizon=horizon.horizon,
+            )
+            data[horizon.coordinator_key] = coordinator
+            refresh_tasks.append(coordinator.async_config_entry_first_refresh())
+
+        europe_default = horizon.europe_default_enabled
+        for legacy_key in horizon.legacy_europe_option_keys:
+            if legacy_key in entry.options:
+                europe_default = entry.options[legacy_key]
+                break
+
+        europe_enabled = entry.options.get(
+            horizon.europe_option_key,
+            europe_default,
+        )
+
+        if europe_enabled:
+            coordinator = EntsoeLoadCoordinator(
+                hass,
+                api_key=api_key,
+                area=TOTAL_EUROPE_AREA,
+                process_type=horizon.process_type,
+                look_ahead=horizon.look_ahead,
+                update_interval=horizon.update_interval,
+                horizon=horizon.horizon,
+            )
+            data[horizon.europe_coordinator_key] = coordinator
+            refresh_tasks.append(coordinator.async_config_entry_first_refresh())
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = data
 
-    if enable_generation:
-        await generation_coordinator.async_config_entry_first_refresh()
-
-    if enable_load:
-        await load_coordinator.async_config_entry_first_refresh()
-    if enable_generation_forecast:
-        await generation_forecast_coordinator.async_config_entry_first_refresh()
-    if enable_wind_solar_forecast:
-        await wind_solar_forecast_coordinator.async_config_entry_first_refresh()
-    if enable_europe_wind_solar_forecast:
-        await wind_solar_forecast_europe_coordinator.async_config_entry_first_refresh()
-    if enable_europe_generation:
-        await generation_europe_coordinator.async_config_entry_first_refresh()
-
-    if enable_europe_load:
-        await load_europe_coordinator.async_config_entry_first_refresh()
+    if refresh_tasks:
+        await asyncio.gather(*refresh_tasks)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 

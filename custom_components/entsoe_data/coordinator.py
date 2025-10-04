@@ -9,8 +9,13 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt
 from requests.exceptions import HTTPError
 
-from .api_client import EntsoeClient
-from .const import AREA_INFO, TOTAL_EUROPE_AREA
+from .api_client import EntsoeClient, PROCESS_TYPE_DAY_AHEAD
+from .const import (
+    AREA_INFO,
+    LOAD_FORECAST_HORIZON_DAY_AHEAD,
+    LOAD_FORECAST_HORIZONS,
+    TOTAL_EUROPE_AREA,
+)
 
 
 class EntsoeBaseCoordinator(DataUpdateCoordinator[dict]):
@@ -176,22 +181,36 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
 class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
     """Coordinator handling total load forecast queries."""
 
-    def __init__(self, hass: HomeAssistant, api_key: str, area: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api_key: str,
+        area: str,
+        *,
+        process_type: str = PROCESS_TYPE_DAY_AHEAD,
+        look_ahead: timedelta | None = None,
+        update_interval: timedelta | None = None,
+        horizon: str = LOAD_FORECAST_HORIZON_DAY_AHEAD,
+    ) -> None:
         self.api_key = api_key
         self.area_key = area
         self.area = AREA_INFO[area]["code"]
         self._client = EntsoeClient(api_key=api_key)
-        logger = logging.getLogger(f"{__name__}.load")
+        self.process_type = process_type
+        self._look_ahead = look_ahead or timedelta(days=3)
+        self.horizon = horizon
+        interval = update_interval or timedelta(minutes=60)
+        logger = logging.getLogger(f"{__name__}.load.{horizon}")
         super().__init__(
             hass,
             logger,
-            name="ENTSO-e load coordinator",
-            update_interval=timedelta(minutes=60),
+            name=f"ENTSO-e load {horizon} coordinator",
+            update_interval=interval,
         )
 
     async def _async_update_data(self) -> dict[datetime, float]:
         start = dt.now() - timedelta(days=1)
-        end = start + timedelta(days=3)
+        end = start + self._look_ahead
 
         try:
             if self.area_key == TOTAL_EUROPE_AREA:
@@ -206,6 +225,7 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
                     self.area,
                     start,
                     end,
+                    self.process_type,
                 )
         except HTTPError as exc:  # pragma: no cover - matching behaviour of base coordinator
             status_code = getattr(exc.response, "status_code", None)
@@ -234,7 +254,9 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
                 continue
             seen_codes.add(code)
 
-            response = self._client.query_total_load_forecast(code, start, end)
+            response = self._client.query_total_load_forecast(
+                code, start, end, self.process_type
+            )
             if not response:
                 continue
 

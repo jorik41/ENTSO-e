@@ -1,3 +1,16 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import Tuple
+
+from .api_client import (
+    PROCESS_TYPE_DAY_AHEAD,
+    PROCESS_TYPE_MONTH_AHEAD,
+    PROCESS_TYPE_WEEK_AHEAD,
+    PROCESS_TYPE_YEAR_AHEAD,
+)
+
 ATTRIBUTION = "Data provided by ENTSO-e Transparency Platform"
 DOMAIN = "entsoe_data"
 UNIQUE_ID = f"{DOMAIN}_component"
@@ -12,6 +25,12 @@ CONF_ENABLE_EUROPE_LOAD = "enable_europe_load"
 CONF_ENABLE_GENERATION_FORECAST = "enable_generation_forecast"
 CONF_ENABLE_WIND_SOLAR_FORECAST = "enable_wind_solar_forecast"
 CONF_ENABLE_EUROPE_WIND_SOLAR_FORECAST = "enable_europe_wind_solar_forecast"
+CONF_ENABLE_LOAD_WEEK_AHEAD = "enable_load_week_ahead"
+CONF_ENABLE_LOAD_MONTH_AHEAD = "enable_load_month_ahead"
+CONF_ENABLE_LOAD_YEAR_AHEAD = "enable_load_year_ahead"
+CONF_ENABLE_EUROPE_LOAD_WEEK_AHEAD = "enable_europe_load_week_ahead"
+CONF_ENABLE_EUROPE_LOAD_MONTH_AHEAD = "enable_europe_load_month_ahead"
+CONF_ENABLE_EUROPE_LOAD_YEAR_AHEAD = "enable_europe_load_year_ahead"
 # Legacy option keys kept for backwards compatibility with existing entries
 CONF_ENABLE_GENERATION_TOTAL_EUROPE = "enable_generation_total_europe"
 CONF_ENABLE_LOAD_TOTAL_EUROPE = "enable_load_total_europe"
@@ -24,8 +43,119 @@ DEFAULT_ENABLE_EUROPE_LOAD = False
 DEFAULT_ENABLE_GENERATION_FORECAST = False
 DEFAULT_ENABLE_WIND_SOLAR_FORECAST = False
 DEFAULT_ENABLE_EUROPE_WIND_SOLAR_FORECAST = False
+DEFAULT_ENABLE_LOAD_WEEK_AHEAD = False
+DEFAULT_ENABLE_LOAD_MONTH_AHEAD = False
+DEFAULT_ENABLE_LOAD_YEAR_AHEAD = False
+DEFAULT_ENABLE_EUROPE_LOAD_WEEK_AHEAD = False
+DEFAULT_ENABLE_EUROPE_LOAD_MONTH_AHEAD = False
+DEFAULT_ENABLE_EUROPE_LOAD_YEAR_AHEAD = False
 DEFAULT_ENABLE_GENERATION_TOTAL_EUROPE = DEFAULT_ENABLE_EUROPE_GENERATION
 DEFAULT_ENABLE_LOAD_TOTAL_EUROPE = DEFAULT_ENABLE_EUROPE_LOAD
+
+LOAD_FORECAST_HORIZON_DAY_AHEAD = "day_ahead"
+LOAD_FORECAST_HORIZON_WEEK_AHEAD = "week_ahead"
+LOAD_FORECAST_HORIZON_MONTH_AHEAD = "month_ahead"
+LOAD_FORECAST_HORIZON_YEAR_AHEAD = "year_ahead"
+
+
+@dataclass(frozen=True)
+class LoadForecastHorizonConfig:
+    horizon: str
+    option_key: str
+    default_enabled: bool
+    coordinator_key: str
+    process_type: str
+    update_interval: timedelta
+    look_ahead: timedelta
+    sensor_key_prefix: str
+    sensor_name_suffix: str | None
+    device_suffix: str
+    europe_option_key: str
+    europe_default_enabled: bool
+    europe_coordinator_key: str
+    europe_device_suffix: str
+    legacy_europe_option_keys: Tuple[str, ...] = ()
+
+
+LOAD_FORECAST_HORIZONS: Tuple[LoadForecastHorizonConfig, ...] = (
+    LoadForecastHorizonConfig(
+        horizon=LOAD_FORECAST_HORIZON_DAY_AHEAD,
+        option_key=CONF_ENABLE_LOAD,
+        default_enabled=DEFAULT_ENABLE_LOAD,
+        coordinator_key="load",
+        process_type=PROCESS_TYPE_DAY_AHEAD,
+        update_interval=timedelta(minutes=60),
+        look_ahead=timedelta(days=3),
+        sensor_key_prefix="load",
+        sensor_name_suffix=None,
+        device_suffix="load",
+        europe_option_key=CONF_ENABLE_EUROPE_LOAD,
+        europe_default_enabled=DEFAULT_ENABLE_EUROPE_LOAD,
+        europe_coordinator_key="load_europe",
+        europe_device_suffix="total_europe_load",
+        legacy_europe_option_keys=(CONF_ENABLE_LOAD_TOTAL_EUROPE,),
+    ),
+    LoadForecastHorizonConfig(
+        horizon=LOAD_FORECAST_HORIZON_WEEK_AHEAD,
+        option_key=CONF_ENABLE_LOAD_WEEK_AHEAD,
+        default_enabled=DEFAULT_ENABLE_LOAD_WEEK_AHEAD,
+        coordinator_key="load_week_ahead",
+        process_type=PROCESS_TYPE_WEEK_AHEAD,
+        update_interval=timedelta(hours=6),
+        look_ahead=timedelta(days=14),
+        sensor_key_prefix="load_week_ahead",
+        sensor_name_suffix="Week-ahead",
+        device_suffix="load_week_ahead",
+        europe_option_key=CONF_ENABLE_EUROPE_LOAD_WEEK_AHEAD,
+        europe_default_enabled=DEFAULT_ENABLE_EUROPE_LOAD_WEEK_AHEAD,
+        europe_coordinator_key="load_week_ahead_europe",
+        europe_device_suffix="total_europe_load_week_ahead",
+    ),
+    LoadForecastHorizonConfig(
+        horizon=LOAD_FORECAST_HORIZON_MONTH_AHEAD,
+        option_key=CONF_ENABLE_LOAD_MONTH_AHEAD,
+        default_enabled=DEFAULT_ENABLE_LOAD_MONTH_AHEAD,
+        coordinator_key="load_month_ahead",
+        process_type=PROCESS_TYPE_MONTH_AHEAD,
+        update_interval=timedelta(hours=12),
+        look_ahead=timedelta(days=62),
+        sensor_key_prefix="load_month_ahead",
+        sensor_name_suffix="Month-ahead",
+        device_suffix="load_month_ahead",
+        europe_option_key=CONF_ENABLE_EUROPE_LOAD_MONTH_AHEAD,
+        europe_default_enabled=DEFAULT_ENABLE_EUROPE_LOAD_MONTH_AHEAD,
+        europe_coordinator_key="load_month_ahead_europe",
+        europe_device_suffix="total_europe_load_month_ahead",
+    ),
+    LoadForecastHorizonConfig(
+        horizon=LOAD_FORECAST_HORIZON_YEAR_AHEAD,
+        option_key=CONF_ENABLE_LOAD_YEAR_AHEAD,
+        default_enabled=DEFAULT_ENABLE_LOAD_YEAR_AHEAD,
+        coordinator_key="load_year_ahead",
+        process_type=PROCESS_TYPE_YEAR_AHEAD,
+        update_interval=timedelta(hours=24),
+        look_ahead=timedelta(days=370),
+        sensor_key_prefix="load_year_ahead",
+        sensor_name_suffix="Year-ahead",
+        device_suffix="load_year_ahead",
+        europe_option_key=CONF_ENABLE_EUROPE_LOAD_YEAR_AHEAD,
+        europe_default_enabled=DEFAULT_ENABLE_EUROPE_LOAD_YEAR_AHEAD,
+        europe_coordinator_key="load_year_ahead_europe",
+        europe_device_suffix="total_europe_load_year_ahead",
+    ),
+)
+
+LOAD_FORECAST_HORIZON_MAP = {
+    horizon.horizon: horizon for horizon in LOAD_FORECAST_HORIZONS
+}
+
+LOAD_FORECAST_OPTION_KEYS: Tuple[str, ...] = tuple(
+    horizon.option_key for horizon in LOAD_FORECAST_HORIZONS
+)
+
+LOAD_FORECAST_EUROPE_OPTION_KEYS: Tuple[str, ...] = tuple(
+    horizon.europe_option_key for horizon in LOAD_FORECAST_HORIZONS
+)
 
 # Commented ones are not working at entsoe
 AREA_INFO = {
