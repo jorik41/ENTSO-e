@@ -50,6 +50,7 @@ TOTAL_GENERATION_KEY = "total_generation"
 DEFAULT_GENERATION_CATEGORIES = sorted(set(PSR_CATEGORY_MAPPING.values()))
 GENERATION_FORECAST_DEVICE_SUFFIX = "generation_forecast"
 WIND_SOLAR_DEVICE_SUFFIX = "wind_solar_forecast"
+WIND_SOLAR_EUROPE_DEVICE_SUFFIX = f"{TOTAL_EUROPE_CONTEXT}_{WIND_SOLAR_DEVICE_SUFFIX}"
 DEFAULT_WIND_SOLAR_CATEGORIES = ["solar", "wind_offshore", "wind_onshore"]
 
 @dataclass
@@ -322,6 +323,27 @@ def wind_solar_sensor_descriptions(
     return descriptions
 
 
+def wind_solar_total_europe_descriptions(
+    coordinator: EntsoeWindSolarForecastCoordinator,
+) -> list[EntsoeWindSolarEntityDescription]:
+    """Construct wind and solar forecast sensor descriptions for Total Europe."""
+
+    return [
+        EntsoeWindSolarEntityDescription(
+            key=f"{TOTAL_EUROPE_CONTEXT}_{description.key}",
+            name=description.name,
+            native_unit_of_measurement=description.native_unit_of_measurement,
+            state_class=description.state_class,
+            icon=description.icon,
+            category=description.category,
+            value_fn=description.value_fn,
+            attrs_fn=description.attrs_fn,
+            device_suffix=WIND_SOLAR_EUROPE_DEVICE_SUFFIX,
+        )
+        for description in wind_solar_sensor_descriptions(coordinator)
+    ]
+
+
 def _load_attrs(
     coordinator: EntsoeLoadCoordinator, include_next: bool
 ) -> dict[str, Any]:
@@ -424,6 +446,20 @@ async def async_setup_entry(
             _create_wind_solar_sensors(
                 config_entry,
                 wind_solar_forecast_coordinator,
+            )
+        )
+
+    if wind_solar_forecast_europe_coordinator := coordinators.get(
+        "wind_solar_forecast_europe"
+    ):
+        entities.extend(
+            _create_wind_solar_sensors(
+                config_entry,
+                wind_solar_forecast_europe_coordinator,
+                area_name=AREA_INFO.get(TOTAL_EUROPE_AREA, {}).get("name", ""),
+                descriptions=wind_solar_total_europe_descriptions(
+                    wind_solar_forecast_europe_coordinator
+                ),
             )
         )
 
