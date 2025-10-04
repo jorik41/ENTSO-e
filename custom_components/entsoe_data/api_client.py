@@ -22,6 +22,9 @@ DOCUMENT_TYPE_WIND_SOLAR_FORECAST = "A69"
 PROCESS_TYPE_REALISED = "A16"
 PROCESS_TYPE_DAY_AHEAD = "A01"
 PROCESS_TYPE_INTRADAY = "A18"
+PROCESS_TYPE_WEEK_AHEAD = "A31"
+PROCESS_TYPE_MONTH_AHEAD = "A32"
+PROCESS_TYPE_YEAR_AHEAD = "A33"
 
 PSR_CATEGORY_MAPPING = {
     "B01": "biomass",
@@ -202,12 +205,16 @@ class EntsoeClient:
             return None
 
     def query_total_load_forecast(
-        self, country_code: Union[Area, str], start: datetime, end: datetime
+        self,
+        country_code: Union[Area, str],
+        start: datetime,
+        end: datetime,
+        process_type: str = PROCESS_TYPE_DAY_AHEAD,
     ) -> Dict[datetime, float]:
         area = Area.from_identifier(country_code)
         params = {
             "documentType": DOCUMENT_TYPE_TOTAL_LOAD,
-            "processType": PROCESS_TYPE_DAY_AHEAD,
+            "processType": process_type,
             "outBiddingZone_Domain": area.code,
         }
 

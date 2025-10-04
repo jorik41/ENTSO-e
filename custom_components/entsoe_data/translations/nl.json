@@ -11,10 +11,16 @@
           "area": "Gebied*",
           "enable_generation": "Generatiesensoren inschakelen",
           "enable_load": "Belastingsensoren inschakelen",
+          "enable_load_week_ahead": "Belastingsensoren voor weekprognose inschakelen",
+          "enable_load_month_ahead": "Belastingsensoren voor maandprognose inschakelen",
+          "enable_load_year_ahead": "Belastingsensoren voor jaarprognose inschakelen",
           "enable_generation_forecast": "Opwekkingsprognosesensoren inschakelen",
           "enable_wind_solar_forecast": "Wind- en zonnestroomsensoren inschakelen",
           "enable_europe_generation": "Total Europe-generatiesensoren inschakelen",
           "enable_europe_load": "Total Europe-belastingsensoren inschakelen",
+          "enable_europe_load_week_ahead": "Total Europe-belastingsensoren voor weekprognose inschakelen",
+          "enable_europe_load_month_ahead": "Total Europe-belastingsensoren voor maandprognose inschakelen",
+          "enable_europe_load_year_ahead": "Total Europe-belastingsensoren voor jaarprognose inschakelen",
           "enable_europe_wind_solar_forecast": "Total Europe wind- en zonnestroomsensoren inschakelen"
         }
       }
@@ -32,10 +38,16 @@
           "area": "Gebied*",
           "enable_generation": "Generatiesensoren inschakelen",
           "enable_load": "Belastingsensoren inschakelen",
+          "enable_load_week_ahead": "Belastingsensoren voor weekprognose inschakelen",
+          "enable_load_month_ahead": "Belastingsensoren voor maandprognose inschakelen",
+          "enable_load_year_ahead": "Belastingsensoren voor jaarprognose inschakelen",
           "enable_generation_forecast": "Opwekkingsprognosesensoren inschakelen",
           "enable_wind_solar_forecast": "Wind- en zonnestroomsensoren inschakelen",
           "enable_europe_generation": "Total Europe-generatiesensoren inschakelen",
           "enable_europe_load": "Total Europe-belastingsensoren inschakelen",
+          "enable_europe_load_week_ahead": "Total Europe-belastingsensoren voor weekprognose inschakelen",
+          "enable_europe_load_month_ahead": "Total Europe-belastingsensoren voor maandprognose inschakelen",
+          "enable_europe_load_year_ahead": "Total Europe-belastingsensoren voor jaarprognose inschakelen",
           "enable_europe_wind_solar_forecast": "Total Europe wind- en zonnestroomsensoren inschakelen"
         }
       }

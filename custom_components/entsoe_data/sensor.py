@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
 
@@ -28,6 +28,9 @@ from .const import (
     ATTRIBUTION,
     CONF_AREA,
     DOMAIN,
+    LOAD_FORECAST_HORIZON_DAY_AHEAD,
+    LOAD_FORECAST_HORIZON_MAP,
+    LOAD_FORECAST_HORIZONS,
     TOTAL_EUROPE_AREA,
 )
 from .coordinator import (
@@ -45,7 +48,6 @@ GENERATION_DEVICE_SUFFIX = "generation"
 LOAD_DEVICE_SUFFIX = "load"
 TOTAL_EUROPE_CONTEXT = "total_europe"
 GENERATION_EUROPE_DEVICE_SUFFIX = f"{TOTAL_EUROPE_CONTEXT}_{GENERATION_DEVICE_SUFFIX}"
-LOAD_EUROPE_DEVICE_SUFFIX = f"{TOTAL_EUROPE_CONTEXT}_{LOAD_DEVICE_SUFFIX}"
 TOTAL_GENERATION_KEY = "total_generation"
 DEFAULT_GENERATION_CATEGORIES = sorted(set(PSR_CATEGORY_MAPPING.values()))
 GENERATION_FORECAST_DEVICE_SUFFIX = "generation_forecast"
@@ -179,73 +181,98 @@ def _generation_attrs(
     return attrs
 
 
-def load_sensor_descriptions() -> tuple[EntsoeLoadEntityDescription, ...]:
-    """Construct load forecast sensor descriptions."""
-
-    return (
-        EntsoeLoadEntityDescription(
-            key="load_current",
-            name="Current load forecast",
-            native_unit_of_measurement=LOAD_UNIT,
-            state_class=SensorStateClass.MEASUREMENT,
-            icon="mdi:transmission-tower",
-            value_fn=lambda coordinator: coordinator.current_value(),
-            attrs_fn=lambda coordinator: _load_attrs(coordinator, include_next=True),
-        ),
-        EntsoeLoadEntityDescription(
-            key="load_next",
-            name="Next hour load forecast",
-            native_unit_of_measurement=LOAD_UNIT,
-            state_class=SensorStateClass.MEASUREMENT,
-            icon="mdi:transmission-tower-export",
-            value_fn=lambda coordinator: coordinator.next_value(),
-            attrs_fn=lambda coordinator: _load_attrs(coordinator, include_next=False),
-        ),
-        EntsoeLoadEntityDescription(
-            key="load_min",
-            name="Minimum load forecast",
-            native_unit_of_measurement=LOAD_UNIT,
-            state_class=SensorStateClass.MEASUREMENT,
-            icon="mdi:arrow-collapse-down",
-            value_fn=lambda coordinator: coordinator.min_value(),
-            attrs_fn=lambda coordinator: {"timeline": coordinator.timeline()},
-        ),
-        EntsoeLoadEntityDescription(
-            key="load_max",
-            name="Maximum load forecast",
-            native_unit_of_measurement=LOAD_UNIT,
-            state_class=SensorStateClass.MEASUREMENT,
-            icon="mdi:arrow-expand-up",
-            value_fn=lambda coordinator: coordinator.max_value(),
-            attrs_fn=lambda coordinator: {"timeline": coordinator.timeline()},
-        ),
-        EntsoeLoadEntityDescription(
-            key="load_avg",
-            name="Average load forecast",
-            native_unit_of_measurement=LOAD_UNIT,
-            state_class=SensorStateClass.MEASUREMENT,
-            icon="mdi:chart-bell-curve",
-            value_fn=lambda coordinator: coordinator.average_value(),
-            attrs_fn=lambda coordinator: _load_attrs(coordinator, include_next=True),
-        ),
-    )
+_LOAD_SENSOR_TEMPLATES: tuple[
+    tuple[
+        str,
+        str,
+        str,
+        Callable[[EntsoeLoadCoordinator], StateType],
+        Callable[[EntsoeLoadCoordinator], dict[str, Any]],
+    ],
+    ...,
+] = (
+    (
+        "current",
+        "Current load forecast",
+        "mdi:transmission-tower",
+        lambda coordinator: coordinator.current_value(),
+        lambda coordinator: _load_attrs(coordinator, include_next=True),
+    ),
+    (
+        "next",
+        "Next hour load forecast",
+        "mdi:transmission-tower-export",
+        lambda coordinator: coordinator.next_value(),
+        lambda coordinator: _load_attrs(coordinator, include_next=False),
+    ),
+    (
+        "min",
+        "Minimum load forecast",
+        "mdi:arrow-collapse-down",
+        lambda coordinator: coordinator.min_value(),
+        lambda coordinator: {"timeline": coordinator.timeline()},
+    ),
+    (
+        "max",
+        "Maximum load forecast",
+        "mdi:arrow-expand-up",
+        lambda coordinator: coordinator.max_value(),
+        lambda coordinator: {"timeline": coordinator.timeline()},
+    ),
+    (
+        "avg",
+        "Average load forecast",
+        "mdi:chart-bell-curve",
+        lambda coordinator: coordinator.average_value(),
+        lambda coordinator: _load_attrs(coordinator, include_next=True),
+    ),
+)
 
 
-def load_total_europe_descriptions() -> tuple[EntsoeLoadEntityDescription, ...]:
+def load_sensor_descriptions(
+    horizon: str = LOAD_FORECAST_HORIZON_DAY_AHEAD,
+) -> tuple[EntsoeLoadEntityDescription, ...]:
+    """Construct load forecast sensor descriptions for a given horizon."""
+
+    config = LOAD_FORECAST_HORIZON_MAP[horizon]
+    descriptions: list[EntsoeLoadEntityDescription] = []
+
+    for suffix, base_name, icon, value_fn, attrs_fn in _LOAD_SENSOR_TEMPLATES:
+        key = f"{config.sensor_key_prefix}_{suffix}"
+        name = (
+            base_name
+            if config.sensor_name_suffix is None
+            else f"{base_name} ({config.sensor_name_suffix})"
+        )
+        descriptions.append(
+            EntsoeLoadEntityDescription(
+                key=key,
+                name=name,
+                native_unit_of_measurement=LOAD_UNIT,
+                state_class=SensorStateClass.MEASUREMENT,
+                icon=icon,
+                value_fn=value_fn,
+                attrs_fn=attrs_fn,
+                device_suffix=config.device_suffix,
+            )
+        )
+
+    return tuple(descriptions)
+
+
+def load_total_europe_descriptions(
+    horizon: str = LOAD_FORECAST_HORIZON_DAY_AHEAD,
+) -> tuple[EntsoeLoadEntityDescription, ...]:
     """Construct load forecast sensor descriptions for Total Europe totals."""
 
+    config = LOAD_FORECAST_HORIZON_MAP[horizon]
     return tuple(
-        EntsoeLoadEntityDescription(
+        replace(
+            description,
             key=f"{TOTAL_EUROPE_CONTEXT}_{description.key}",
-            name=description.name,
-            native_unit_of_measurement=description.native_unit_of_measurement,
-            state_class=description.state_class,
-            icon=description.icon,
-            value_fn=description.value_fn,
-            attrs_fn=description.attrs_fn,
-            device_suffix=LOAD_EUROPE_DEVICE_SUFFIX,
+            device_suffix=config.europe_device_suffix,
         )
-        for description in load_sensor_descriptions()
+        for description in load_sensor_descriptions(horizon)
     )
 
 
@@ -442,13 +469,28 @@ async def async_setup_entry(
             )
         )
 
-    if load_coordinator := coordinators.get("load"):
-        entities.extend(
-            _create_load_sensors(
-                config_entry,
-                load_coordinator,
+    europe_area_name = AREA_INFO.get(TOTAL_EUROPE_AREA, {}).get("name", "")
+
+    for horizon in LOAD_FORECAST_HORIZONS:
+        if load_coordinator := coordinators.get(horizon.coordinator_key):
+            entities.extend(
+                _create_load_sensors(
+                    config_entry,
+                    load_coordinator,
+                    descriptions=load_sensor_descriptions(horizon.horizon),
+                )
             )
-        )
+
+        europe_key = horizon.europe_coordinator_key
+        if europe_load_coordinator := coordinators.get(europe_key):
+            entities.extend(
+                _create_load_sensors(
+                    config_entry,
+                    europe_load_coordinator,
+                    area_name=europe_area_name,
+                    descriptions=load_total_europe_descriptions(horizon.horizon),
+                )
+            )
 
     if generation_forecast_coordinator := coordinators.get("generation_forecast"):
         entities.extend(
@@ -477,16 +519,6 @@ async def async_setup_entry(
                 descriptions=wind_solar_total_europe_descriptions(
                     wind_solar_forecast_europe_coordinator
                 ),
-            )
-        )
-
-    if load_europe_coordinator := coordinators.get("load_europe"):
-        entities.extend(
-            _create_load_sensors(
-                config_entry,
-                load_europe_coordinator,
-                area_name=AREA_INFO.get(TOTAL_EUROPE_AREA, {}).get("name", ""),
-                descriptions=load_total_europe_descriptions(),
             )
         )
 

@@ -10,8 +10,15 @@ import requests
 PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 sys.path.append(str(PACKAGE_ROOT))
 
-from custom_components.entsoe_data.api_client import EntsoeClient
-from custom_components.entsoe_data.const import AREA_INFO, CONF_AREA, DOMAIN, TOTAL_EUROPE_AREA
+from custom_components.entsoe_data.api_client import EntsoeClient, PROCESS_TYPE_DAY_AHEAD
+from custom_components.entsoe_data.const import (
+    AREA_INFO,
+    CONF_AREA,
+    DOMAIN,
+    LOAD_FORECAST_HORIZON_MONTH_AHEAD,
+    LOAD_FORECAST_HORIZON_WEEK_AHEAD,
+    TOTAL_EUROPE_AREA,
+)
 from custom_components.entsoe_data.coordinator import (
     EntsoeGenerationCoordinator,
     EntsoeGenerationForecastCoordinator,
@@ -124,8 +131,10 @@ def test_generation_coordinator_total_europe_aggregates(monkeypatch, hass):
     }
     called_codes: list[str] = []
 
-    def _fake_query(area_code, start, end):
+    def _fake_query(area_code, start, end, process_type=None):
         called_codes.append(area_code)
+        if process_type is not None:
+            assert process_type == PROCESS_TYPE_DAY_AHEAD
         return responses.get(area_code, {})
 
     monkeypatch.setattr(
@@ -178,8 +187,10 @@ def test_wind_solar_coordinator_total_europe_aggregates(monkeypatch, hass):
     }
     called_codes: list[str] = []
 
-    def _fake_query(area_code, start, end):
+    def _fake_query(area_code, start, end, process_type=None):
         called_codes.append(area_code)
+        if process_type is not None:
+            assert process_type == PROCESS_TYPE_DAY_AHEAD
         return responses.get(area_code, {})
 
     monkeypatch.setattr(
@@ -197,6 +208,79 @@ def test_wind_solar_coordinator_total_europe_aggregates(monkeypatch, hass):
     assert values["wind_offshore"] == pytest.approx(5.0)
     assert values["solar"] == pytest.approx(40.0)
     assert set(coordinator.categories()) == {"wind_offshore", "wind_onshore", "solar"}
+
+
+def test_load_coordinator_uses_custom_process_type(monkeypatch, hass):
+    coordinator = EntsoeLoadCoordinator(
+        hass,
+        "test",
+        "BE",
+        process_type="A31",
+        look_ahead=timedelta(days=7),
+        update_interval=timedelta(hours=3),
+        horizon="week_ahead",
+    )
+
+    called: dict[str, str] = {}
+
+    def _fake_query(area, start, end, process_type):
+        called["process_type"] = process_type
+        return {}
+
+    monkeypatch.setattr(coordinator._client, "query_total_load_forecast", _fake_query)
+
+    asyncio.run(coordinator._async_update_data())
+
+    assert called["process_type"] == "A31"
+    assert coordinator.update_interval == timedelta(hours=3)
+    assert coordinator.horizon == "week_ahead"
+
+
+def test_load_coordinator_total_europe_process_type(monkeypatch, hass):
+    minimal_area_info = {
+        TOTAL_EUROPE_AREA: {"code": "10Y1001A1001A876"},
+        "DE": {"code": "DE_LU"},
+        "FR": {"code": "FR"},
+    }
+    monkeypatch.setattr(
+        "custom_components.entsoe_data.coordinator.AREA_INFO",
+        minimal_area_info,
+        raising=False,
+    )
+
+    coordinator = EntsoeLoadCoordinator(
+        hass,
+        "test",
+        TOTAL_EUROPE_AREA,
+        process_type="A32",
+        look_ahead=timedelta(days=30),
+        horizon="month_ahead",
+    )
+
+    called: list[str] = []
+
+    def _fake_query(area, start, end, process_type):
+        called.append(process_type)
+        return {}
+
+    monkeypatch.setattr(coordinator._client, "query_total_load_forecast", _fake_query)
+
+    asyncio.run(coordinator._async_update_data())
+
+    assert called
+    assert set(called) == {"A32"}
+
+
+def test_load_sensor_descriptions_include_horizons():
+    week_descriptions = load_sensor_descriptions(LOAD_FORECAST_HORIZON_WEEK_AHEAD)
+    assert all(description.key.startswith("load_week_ahead_") for description in week_descriptions)
+    assert any("Week-ahead" in description.name for description in week_descriptions)
+
+    europe_month = load_total_europe_descriptions(LOAD_FORECAST_HORIZON_MONTH_AHEAD)
+    assert all(
+        description.key.startswith("total_europe_load_month_ahead_")
+        for description in europe_month
+    )
 
 
 def test_load_coordinator_total_europe_aggregates(monkeypatch, hass):
@@ -225,8 +309,9 @@ def test_load_coordinator_total_europe_aggregates(monkeypatch, hass):
     }
     called_codes: list[str] = []
 
-    def _fake_query(area_code, start, end):
+    def _fake_query(area_code, start, end, process_type):
         called_codes.append(area_code)
+        assert process_type == PROCESS_TYPE_DAY_AHEAD
         return responses.get(area_code, {})
 
     monkeypatch.setattr(

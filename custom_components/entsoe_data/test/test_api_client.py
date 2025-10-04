@@ -5,20 +5,23 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 sys.path.append(str(PACKAGE_ROOT))
 
-from api_client import (
+from custom_components.entsoe_data.api_client import (
     DOCUMENT_TYPE_GENERATION_PER_TYPE,
     DOCUMENT_TYPE_GENERATION_FORECAST,
     DOCUMENT_TYPE_TOTAL_LOAD,
     DOCUMENT_TYPE_WIND_SOLAR_FORECAST,
     PROCESS_TYPE_DAY_AHEAD,
+    PROCESS_TYPE_MONTH_AHEAD,
     PROCESS_TYPE_REALISED,
+    PROCESS_TYPE_WEEK_AHEAD,
+    PROCESS_TYPE_YEAR_AHEAD,
     EntsoeClient,
     Area,
 )
-from const import AREA_INFO, TOTAL_EUROPE_AREA
+from custom_components.entsoe_data.const import AREA_INFO, TOTAL_EUROPE_AREA
 
 
 DATASET_DIR = Path(__file__).parent / "datasets"
@@ -394,6 +397,27 @@ class TestDocumentParsing(unittest.TestCase):
         self.assertNotIn("out_Domain", params)
         self.assertEqual(params["outBiddingZone_Domain"], "10YBE----------2")
         parse_mock.assert_called_once()
+
+    def test_query_total_load_forecast_uses_custom_process_type(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.content = b"<root />"
+
+        with patch.object(self.client, "_base_request", return_value=response) as base_mock, patch.object(
+            self.client,
+            "parse_total_load_document",
+            return_value={},
+        ):
+            result = self.client.query_total_load_forecast(
+                "BE",
+                datetime(2024, 10, 1),
+                datetime(2024, 10, 2),
+                process_type=PROCESS_TYPE_WEEK_AHEAD,
+            )
+
+        self.assertEqual(result, {})
+        params = base_mock.call_args.kwargs["params"]
+        self.assertEqual(params["processType"], PROCESS_TYPE_WEEK_AHEAD)
 
     def test_query_generation_forecast_params(self):
         response = MagicMock()
