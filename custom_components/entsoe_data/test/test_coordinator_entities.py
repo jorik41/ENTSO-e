@@ -244,11 +244,21 @@ def test_total_europe_generation_sensor_grouping(hass):
     coordinator.data = {
         timestamp: {
             TOTAL_GENERATION_KEY: 6400.0,
+            "wind_onshore": 1500.0,
         }
     }
-    coordinator._available_categories = {TOTAL_GENERATION_KEY}
+    coordinator._available_categories = {TOTAL_GENERATION_KEY, "wind_onshore"}
 
-    description = generation_total_europe_descriptions(coordinator)[0]
+    descriptions = generation_total_europe_descriptions(coordinator)
+    assert {desc.key for desc in descriptions} == {
+        "total_europe_generation_total",
+        "total_europe_generation_wind_onshore",
+    }
+
+    descriptions_by_category = {description.category: description for description in descriptions}
+
+    total_description = descriptions_by_category[TOTAL_GENERATION_KEY]
+    wind_description = descriptions_by_category["wind_onshore"]
 
     config_entry = type(
         "ConfigEntry",
@@ -260,19 +270,39 @@ def test_total_europe_generation_sensor_grouping(hass):
     )()
 
     area_name = AREA_INFO[TOTAL_EUROPE_AREA]["name"]
-    sensor = EntsoeGenerationSensor(coordinator, description, config_entry, area_name)
-    sensor.hass = hass
+    sensors = [
+        EntsoeGenerationSensor(coordinator, total_description, config_entry, area_name),
+        EntsoeGenerationSensor(coordinator, wind_description, config_entry, area_name),
+    ]
 
-    asyncio.run(sensor.async_update())
+    for sensor in sensors:
+        sensor.hass = hass
+        asyncio.run(sensor.async_update())
 
-    assert sensor.entity_id == "entsoe_data.total_europe_generation_total"
-    assert sensor._attr_unique_id.endswith(
+    total_sensor, wind_sensor = sensors
+
+    assert total_sensor.entity_id == "entsoe_data.total_europe_generation_total"
+    assert total_sensor._attr_unique_id.endswith(
         "total_europe_generation.total_europe_generation_total"
     )
-    assert sensor._attr_device_info.identifiers == {
+    assert total_sensor._attr_device_info.identifiers == {
         (DOMAIN, "entry_total_europe_generation")
     }
-    assert sensor.native_value == 6400.0
+    assert total_sensor.native_value == 6400.0
+    assert total_sensor._attr_name == "Total Generation output (Total Europe)"
+
+    assert wind_sensor.entity_id == "entsoe_data.total_europe_generation_wind_onshore"
+    assert wind_sensor._attr_unique_id.endswith(
+        "total_europe_generation.total_europe_generation_wind_onshore"
+    )
+    assert wind_sensor.native_value == 1500.0
+    assert wind_sensor._attr_name == "Wind Onshore output (Total Europe)"
+
+    unique_ids = {sensor._attr_unique_id for sensor in sensors}
+    assert len(unique_ids) == len(sensors)
+
+    entity_ids = {sensor.entity_id for sensor in sensors}
+    assert len(entity_ids) == len(sensors)
 
 
 def test_total_europe_wind_solar_sensor_grouping(hass):

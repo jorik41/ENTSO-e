@@ -127,21 +127,38 @@ def generation_total_europe_descriptions(
 ) -> list[EntsoeGenerationEntityDescription]:
     """Create generation sensor descriptions for Total Europe totals."""
 
-    return [
-        EntsoeGenerationEntityDescription(
-            key=f"{TOTAL_EUROPE_CONTEXT}_generation_total",
-            name="Total generation output",
-            native_unit_of_measurement=GENERATION_UNIT,
-            state_class=SensorStateClass.MEASUREMENT,
-            icon="mdi:factory",
-            category=TOTAL_GENERATION_KEY,
-            value_fn=lambda coordinator: coordinator.current_value(TOTAL_GENERATION_KEY),
-            attrs_fn=lambda coordinator: _generation_attrs(
-                coordinator, TOTAL_GENERATION_KEY
-            ),
-            device_suffix=GENERATION_EUROPE_DEVICE_SUFFIX,
+    categories = set(coordinator.categories())
+    categories.add(TOTAL_GENERATION_KEY)
+
+    descriptions: list[EntsoeGenerationEntityDescription] = []
+    for category in sorted(categories):
+        name = (
+            "Total generation"
+            if category == TOTAL_GENERATION_KEY
+            else _format_category_name(category)
         )
-    ]
+        key = (
+            f"{TOTAL_EUROPE_CONTEXT}_generation_total"
+            if category == TOTAL_GENERATION_KEY
+            else f"{TOTAL_EUROPE_CONTEXT}_generation_{category}"
+        )
+        descriptions.append(
+            EntsoeGenerationEntityDescription(
+                key=key,
+                name=f"{name.title()} output",
+                native_unit_of_measurement=GENERATION_UNIT,
+                state_class=SensorStateClass.MEASUREMENT,
+                icon="mdi:factory",
+                category=category,
+                value_fn=lambda coordinator, cat=category: coordinator.current_value(cat),
+                attrs_fn=lambda coordinator, cat=category: _generation_attrs(
+                    coordinator, cat
+                ),
+                device_suffix=GENERATION_EUROPE_DEVICE_SUFFIX,
+            )
+        )
+
+    return descriptions
 
 
 def _generation_attrs(
