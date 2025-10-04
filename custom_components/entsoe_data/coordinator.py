@@ -178,6 +178,7 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
 
     def __init__(self, hass: HomeAssistant, api_key: str, area: str) -> None:
         self.api_key = api_key
+        self.area_key = area
         self.area = AREA_INFO[area]["code"]
         self._client = EntsoeClient(api_key=api_key)
         logger = logging.getLogger(f"{__name__}.load")
@@ -193,12 +194,19 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
         end = start + timedelta(days=3)
 
         try:
-            response: dict[datetime, float] | None = await self.hass.async_add_executor_job(
-                self._client.query_total_load_forecast,
-                self.area,
-                start,
-                end,
-            )
+            if self.area_key == TOTAL_EUROPE_AREA:
+                response = await self.hass.async_add_executor_job(
+                    self._query_total_europe_load,
+                    start,
+                    end,
+                )
+            else:
+                response = await self.hass.async_add_executor_job(
+                    self._client.query_total_load_forecast,
+                    self.area,
+                    start,
+                    end,
+                )
         except HTTPError as exc:  # pragma: no cover - matching behaviour of base coordinator
             status_code = getattr(exc.response, "status_code", None)
             if status_code == 401:
@@ -212,6 +220,28 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
             raise
 
         return response or {}
+
+    def _query_total_europe_load(self, start: datetime, end: datetime) -> dict[datetime, float]:
+        aggregate: defaultdict[datetime, float] = defaultdict(float)
+        seen_codes: set[str] = set()
+
+        for area_key, info in AREA_INFO.items():
+            if area_key == TOTAL_EUROPE_AREA:
+                continue
+
+            code = info["code"]
+            if code in seen_codes:
+                continue
+            seen_codes.add(code)
+
+            response = self._client.query_total_load_forecast(code, start, end)
+            if not response:
+                continue
+
+            for timestamp, value in response.items():
+                aggregate[timestamp] += value
+
+        return dict(aggregate)
 
     def current_value(self, reference: datetime | None = None) -> float | None:
         timestamp = self._select_current_timestamp(reference)
