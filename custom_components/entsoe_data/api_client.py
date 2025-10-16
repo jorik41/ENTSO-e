@@ -110,7 +110,10 @@ class EntsoeClient:
                 last_error = exc
                 continue
 
-        assert last_error is not None  # nosec - last_error always set when loop exits
+        if last_error is None:  # pragma: no cover - defensive guard
+            raise RuntimeError(
+                "All ENTSO-e endpoints failed, but no error was captured."
+            )
         raise last_error
 
     def _iter_response_documents(self, response: requests.Response) -> list[bytes]:
@@ -225,6 +228,12 @@ class EntsoeClient:
         end: datetime,
         process_type: str = PROCESS_TYPE_REALISED,
     ) -> Dict[datetime, Dict[str, float]]:
+        """Return generation per type aggregated across ENTSO-e publications.
+
+        When the Transparency Platform responds with multiple documents, including
+        ZIP archives, values for matching timestamps and categories are summed to
+        produce a single consolidated series.
+        """
         area = Area.from_identifier(country_code)
         process = process_type
         if not isinstance(process, str):
@@ -281,6 +290,11 @@ class EntsoeClient:
         end: datetime,
         process_type: str = PROCESS_TYPE_DAY_AHEAD,
     ) -> Dict[datetime, float]:
+        """Return aggregated total load forecasts for the requested area.
+
+        Multiple publications returned by the API, including entries inside ZIP
+        archives, are merged by summing values per timestamp.
+        """
         area = Area.from_identifier(country_code)
         params = {
             "documentType": DOCUMENT_TYPE_TOTAL_LOAD,
@@ -309,6 +323,11 @@ class EntsoeClient:
     def query_generation_forecast(
         self, country_code: Union[Area, str], start: datetime, end: datetime
     ) -> Dict[datetime, float]:
+        """Return aggregated generation forecasts for the requested area.
+
+        Values are summed per timestamp so responses that span multiple
+        publications (e.g. ZIP archives) are combined into a single time series.
+        """
         area = Area.from_identifier(country_code)
         params = {
             "documentType": DOCUMENT_TYPE_GENERATION_FORECAST,
@@ -338,6 +357,11 @@ class EntsoeClient:
     def query_wind_solar_forecast(
         self, country_code: Union[Area, str], start: datetime, end: datetime
     ) -> Dict[datetime, Dict[str, float]]:
+        """Return aggregated wind and solar forecasts for the requested area.
+
+        Supports multi-document responses by summing values for each timestamp
+        and technology across all publications delivered by the API.
+        """
         area = Area.from_identifier(country_code)
         params = {
             "documentType": DOCUMENT_TYPE_WIND_SOLAR_FORECAST,
@@ -369,7 +393,7 @@ class EntsoeClient:
             return None
 
     # lets process the received document
-    def parse_price_document(self, document: str) -> str:
+    def parse_price_document(self, document: Union[str, bytes]) -> str:
 
         root = self._remove_namespace(ET.fromstring(document))
         _LOGGER.debug(f"content: {root}")
@@ -485,7 +509,7 @@ class EntsoeClient:
         return data
 
     def parse_generation_per_type_document(
-        self, document: str
+        self, document: Union[str, bytes]
     ) -> Dict[datetime, Dict[str, float]]:
         root = self._remove_namespace(ET.fromstring(document))
         generation = defaultdict(lambda: defaultdict(float))
@@ -533,7 +557,9 @@ class EntsoeClient:
 
         return result
 
-    def parse_generation_forecast_document(self, document: str) -> Dict[datetime, float]:
+    def parse_generation_forecast_document(
+        self, document: Union[str, bytes]
+    ) -> Dict[datetime, float]:
         root = self._remove_namespace(ET.fromstring(document))
         forecast = defaultdict(float)
 
@@ -576,7 +602,7 @@ class EntsoeClient:
         return {timestamp: float(forecast[timestamp]) for timestamp in sorted(forecast)}
 
     def parse_wind_solar_document(
-        self, document: str
+        self, document: Union[str, bytes]
     ) -> Dict[datetime, Dict[str, float]]:
         root = self._remove_namespace(ET.fromstring(document))
         forecast = defaultdict(lambda: defaultdict(float))
@@ -626,7 +652,9 @@ class EntsoeClient:
 
         return result
 
-    def parse_total_load_document(self, document: str) -> Dict[datetime, float]:
+    def parse_total_load_document(
+        self, document: Union[str, bytes]
+    ) -> Dict[datetime, float]:
         root = self._remove_namespace(ET.fromstring(document))
         load = defaultdict(float)
 
