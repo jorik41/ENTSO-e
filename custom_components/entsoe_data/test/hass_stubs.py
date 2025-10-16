@@ -328,6 +328,12 @@ def install_hass_stubs() -> None:
     exceptions.HTTPError = HTTPError
     requests.exceptions = exceptions
 
+    class Session:  # pragma: no cover - stub
+        def get(self, *args: Any, **kwargs: Any) -> Any:
+            raise NotImplementedError
+
+    requests.Session = Session
+
     # ------------------------------------------------------------------
     # pytz stub used by the API client
     pytz = _ensure_module("pytz")

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import enum
+import io
 import logging
+import zipfile
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -9,9 +11,14 @@ from typing import Dict, Union
 
 import pytz
 import requests
+from requests import exceptions as requests_exceptions
 
 _LOGGER = logging.getLogger(__name__)
-URL = "https://web-api.tp.entsoe.eu/api"
+BASE_URLS: tuple[str, ...] = (
+    "https://web-api.tp.entsoe.eu/api",
+    "https://api.transparency.entsoe.eu/api",
+)
+REQUEST_TIMEOUT = 30
 DATETIMEFORMAT = "%Y%m%d%H00"
 
 DOCUMENT_TYPE_GENERATION_PER_TYPE = "A75"
@@ -64,6 +71,7 @@ class EntsoeClient:
         if api_key == "":
             raise TypeError("API key cannot be empty")
         self.api_key = api_key
+        self._session: requests.Session = requests.Session()
 
     def _base_request(
         self, params: Dict, start: datetime, end: datetime
@@ -76,11 +84,64 @@ class EntsoeClient:
         }
         params.update(base_params)
 
-        _LOGGER.debug(f"Performing request to {URL} with params {params}")
-        response = requests.get(url=URL, params=params)
-        response.raise_for_status()  # Raise an HTTPError for bad responses (4xx or 5xx)
+        last_error: Exception | None = None
 
-        return response
+        for url in BASE_URLS:
+            _LOGGER.debug("Performing request to %s with params %s", url, params)
+            try:
+                response = self._session.get(
+                    url=url,
+                    params=params,
+                    timeout=REQUEST_TIMEOUT,
+                )
+                response.raise_for_status()
+                return response
+            except requests_exceptions.HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                if status in (500, 502, 503, 504):
+                    _LOGGER.warning(
+                        "Received %s from %s, trying next ENTSO-e endpoint", status, url
+                    )
+                    last_error = exc
+                    continue
+                raise
+            except requests_exceptions.RequestException as exc:  # includes timeouts
+                _LOGGER.warning("Error contacting %s: %s", url, exc)
+                last_error = exc
+                continue
+
+        if last_error is None:  # pragma: no cover - defensive guard
+            raise RuntimeError(
+                "All ENTSO-e endpoints failed, but no error was captured."
+            )
+        raise last_error
+
+    def _iter_response_documents(self, response: requests.Response) -> list[bytes]:
+        content_type = response.headers.get("Content-Type", "")
+        treat_as_zip = "zip" in content_type.lower()
+        content = response.content
+
+        buffer = io.BytesIO(content)
+        if not treat_as_zip:
+            treat_as_zip = zipfile.is_zipfile(buffer)
+        if not treat_as_zip:
+            return [content]
+
+        buffer.seek(0)
+
+        try:
+            with zipfile.ZipFile(buffer) as archive:
+                members = [name for name in archive.namelist() if not name.endswith("/")]
+                if not members:
+                    raise ValueError("Zip archive did not contain any files")
+
+                xml_members = [name for name in members if name.lower().endswith(".xml")]
+                selected_members = sorted(xml_members or members)
+
+                return [archive.read(name) for name in selected_members]
+        except zipfile.BadZipFile as exc:  # pragma: no cover - defensive guard
+            _LOGGER.error("Failed to read ENTSO-e zip response: %s", exc)
+            raise ValueError("ENTSO-e response payload is not a valid ZIP archive") from exc
 
     def _remove_namespace(self, tree):
         """Remove namespaces in the passed XML tree for easier tag searching."""
@@ -148,7 +209,9 @@ class EntsoeClient:
 
         if response.status_code == 200:
             try:
-                series = self.parse_price_document(response.content)
+                series: Dict[datetime, float] = {}
+                for document in self._iter_response_documents(response):
+                    series.update(self.parse_price_document(document))
                 return dict(sorted(series.items()))
 
             except Exception as exc:
@@ -165,6 +228,12 @@ class EntsoeClient:
         end: datetime,
         process_type: str = PROCESS_TYPE_REALISED,
     ) -> Dict[datetime, Dict[str, float]]:
+        """Return generation per type aggregated across ENTSO-e publications.
+
+        When the Transparency Platform responds with multiple documents, including
+        ZIP archives, values for matching timestamps and categories are summed to
+        produce a single consolidated series.
+        """
         area = Area.from_identifier(country_code)
         process = process_type
         if not isinstance(process, str):
@@ -196,7 +265,17 @@ class EntsoeClient:
 
         if response.status_code == 200:
             try:
-                return self.parse_generation_per_type_document(response.content)
+                generation = defaultdict(lambda: defaultdict(float))
+                for document in self._iter_response_documents(response):
+                    parsed = self.parse_generation_per_type_document(document)
+                    for timestamp, categories in parsed.items():
+                        for category, value in categories.items():
+                            generation[timestamp][category] += float(value)
+
+                result: Dict[datetime, Dict[str, float]] = {}
+                for timestamp in sorted(generation):
+                    result[timestamp] = dict(sorted(generation[timestamp].items()))
+                return result
             except Exception as exc:
                 _LOGGER.debug(f"Failed to parse response content:{response.content}")
                 raise exc
@@ -211,6 +290,11 @@ class EntsoeClient:
         end: datetime,
         process_type: str = PROCESS_TYPE_DAY_AHEAD,
     ) -> Dict[datetime, float]:
+        """Return aggregated total load forecasts for the requested area.
+
+        Multiple publications returned by the API, including entries inside ZIP
+        archives, are merged by summing values per timestamp.
+        """
         area = Area.from_identifier(country_code)
         params = {
             "documentType": DOCUMENT_TYPE_TOTAL_LOAD,
@@ -222,7 +306,13 @@ class EntsoeClient:
 
         if response.status_code == 200:
             try:
-                return self.parse_total_load_document(response.content)
+                load = defaultdict(float)
+                for document in self._iter_response_documents(response):
+                    parsed = self.parse_total_load_document(document)
+                    for timestamp, value in parsed.items():
+                        load[timestamp] += float(value)
+
+                return {timestamp: load[timestamp] for timestamp in sorted(load)}
             except Exception as exc:
                 _LOGGER.debug(f"Failed to parse response content:{response.content}")
                 raise exc
@@ -233,6 +323,11 @@ class EntsoeClient:
     def query_generation_forecast(
         self, country_code: Union[Area, str], start: datetime, end: datetime
     ) -> Dict[datetime, float]:
+        """Return aggregated generation forecasts for the requested area.
+
+        Values are summed per timestamp so responses that span multiple
+        publications (e.g. ZIP archives) are combined into a single time series.
+        """
         area = Area.from_identifier(country_code)
         params = {
             "documentType": DOCUMENT_TYPE_GENERATION_FORECAST,
@@ -245,7 +340,13 @@ class EntsoeClient:
 
         if response.status_code == 200:
             try:
-                return self.parse_generation_forecast_document(response.content)
+                forecast = defaultdict(float)
+                for document in self._iter_response_documents(response):
+                    parsed = self.parse_generation_forecast_document(document)
+                    for timestamp, value in parsed.items():
+                        forecast[timestamp] += float(value)
+
+                return {timestamp: float(forecast[timestamp]) for timestamp in sorted(forecast)}
             except Exception as exc:
                 _LOGGER.debug(f"Failed to parse response content:{response.content}")
                 raise exc
@@ -256,6 +357,11 @@ class EntsoeClient:
     def query_wind_solar_forecast(
         self, country_code: Union[Area, str], start: datetime, end: datetime
     ) -> Dict[datetime, Dict[str, float]]:
+        """Return aggregated wind and solar forecasts for the requested area.
+
+        Supports multi-document responses by summing values for each timestamp
+        and technology across all publications delivered by the API.
+        """
         area = Area.from_identifier(country_code)
         params = {
             "documentType": DOCUMENT_TYPE_WIND_SOLAR_FORECAST,
@@ -268,7 +374,17 @@ class EntsoeClient:
 
         if response.status_code == 200:
             try:
-                return self.parse_wind_solar_document(response.content)
+                forecast = defaultdict(lambda: defaultdict(float))
+                for document in self._iter_response_documents(response):
+                    parsed = self.parse_wind_solar_document(document)
+                    for timestamp, categories in parsed.items():
+                        for category, value in categories.items():
+                            forecast[timestamp][category] += float(value)
+
+                result: Dict[datetime, Dict[str, float]] = {}
+                for timestamp in sorted(forecast):
+                    result[timestamp] = dict(sorted(forecast[timestamp].items()))
+                return result
             except Exception as exc:
                 _LOGGER.debug(f"Failed to parse response content:{response.content}")
                 raise exc
@@ -277,7 +393,7 @@ class EntsoeClient:
             return None
 
     # lets process the received document
-    def parse_price_document(self, document: str) -> str:
+    def parse_price_document(self, document: Union[str, bytes]) -> Dict[datetime, float]:
 
         root = self._remove_namespace(ET.fromstring(document))
         _LOGGER.debug(f"content: {root}")
@@ -393,7 +509,7 @@ class EntsoeClient:
         return data
 
     def parse_generation_per_type_document(
-        self, document: str
+        self, document: Union[str, bytes]
     ) -> Dict[datetime, Dict[str, float]]:
         root = self._remove_namespace(ET.fromstring(document))
         generation = defaultdict(lambda: defaultdict(float))
@@ -441,7 +557,9 @@ class EntsoeClient:
 
         return result
 
-    def parse_generation_forecast_document(self, document: str) -> Dict[datetime, float]:
+    def parse_generation_forecast_document(
+        self, document: Union[str, bytes]
+    ) -> Dict[datetime, float]:
         root = self._remove_namespace(ET.fromstring(document))
         forecast = defaultdict(float)
 
@@ -484,7 +602,7 @@ class EntsoeClient:
         return {timestamp: float(forecast[timestamp]) for timestamp in sorted(forecast)}
 
     def parse_wind_solar_document(
-        self, document: str
+        self, document: Union[str, bytes]
     ) -> Dict[datetime, Dict[str, float]]:
         root = self._remove_namespace(ET.fromstring(document))
         forecast = defaultdict(lambda: defaultdict(float))
@@ -534,7 +652,9 @@ class EntsoeClient:
 
         return result
 
-    def parse_total_load_document(self, document: str) -> Dict[datetime, float]:
+    def parse_total_load_document(
+        self, document: Union[str, bytes]
+    ) -> Dict[datetime, float]:
         root = self._remove_namespace(ET.fromstring(document))
         load = defaultdict(float)
 
