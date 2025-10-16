@@ -1,6 +1,8 @@
+import io
 import os
 import sys
 import unittest
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -8,7 +10,10 @@ from unittest.mock import MagicMock, patch
 PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 sys.path.append(str(PACKAGE_ROOT))
 
+import requests
+
 from custom_components.entsoe_data.api_client import (
+    BASE_URLS,
     DOCUMENT_TYPE_GENERATION_PER_TYPE,
     DOCUMENT_TYPE_GENERATION_FORECAST,
     DOCUMENT_TYPE_TOTAL_LOAD,
@@ -33,6 +38,112 @@ class TestDocumentParsing(unittest.TestCase):
     def setUp(self) -> None:
         self.client = EntsoeClient("fake-key")
         return super().setUp()
+
+    def _zip_documents(self, *documents: str) -> bytes:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for idx, document in enumerate(documents, start=1):
+                archive.writestr(f"doc{idx}.xml", document)
+        return buffer.getvalue()
+
+    @patch("custom_components.entsoe_data.api_client.requests.Session")
+    def test_base_request_retries_on_server_error(self, session_cls):
+        session = session_cls.return_value
+        response_503 = MagicMock()
+        response_503.status_code = 503
+        http_error = requests.exceptions.HTTPError(response=response_503)
+        response_503.raise_for_status.side_effect = http_error
+
+        response_ok = MagicMock()
+        response_ok.status_code = 200
+        response_ok.raise_for_status.return_value = None
+
+        session.get.side_effect = [response_503, response_ok]
+
+        client = EntsoeClient("fake-key")
+        result = client._base_request({}, datetime(2024, 10, 7), datetime(2024, 10, 8))
+
+        self.assertIs(result, response_ok)
+        self.assertEqual(session.get.call_count, 2)
+        self.assertEqual(session.get.call_args_list[0][1]["url"], BASE_URLS[0])
+        self.assertEqual(session.get.call_args_list[1][1]["url"], BASE_URLS[1])
+
+    @patch("custom_components.entsoe_data.api_client.requests.Session")
+    def test_base_request_raises_last_error(self, session_cls):
+        session = session_cls.return_value
+        response_503 = MagicMock()
+        response_503.status_code = 503
+        http_error = requests.exceptions.HTTPError(response=response_503)
+        response_503.raise_for_status.side_effect = http_error
+        session.get.side_effect = [response_503, response_503]
+
+        client = EntsoeClient("fake-key")
+
+        with self.assertRaises(requests.exceptions.HTTPError) as ctx:
+            client._base_request({}, datetime(2024, 10, 7), datetime(2024, 10, 8))
+
+        self.assertIs(ctx.exception.response, response_503)
+        self.assertEqual(session.get.call_count, len(BASE_URLS))
+
+    def test_query_total_load_forecast_handles_zip_payload(self):
+        xml_doc = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <GL_MarketDocument>
+          <TimeSeries>
+            <Period>
+              <timeInterval>
+                <start>2024-10-01T00:00Z</start>
+                <end>2024-10-01T01:00Z</end>
+              </timeInterval>
+              <resolution>PT60M</resolution>
+              <Point>
+                <position>1</position>
+                <quantity>1000</quantity>
+              </Point>
+            </Period>
+          </TimeSeries>
+        </GL_MarketDocument>
+        """.strip()
+
+        second_doc = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <GL_MarketDocument>
+          <TimeSeries>
+            <Period>
+              <timeInterval>
+                <start>2024-10-01T01:00Z</start>
+                <end>2024-10-01T02:00Z</end>
+              </timeInterval>
+              <resolution>PT60M</resolution>
+              <Point>
+                <position>1</position>
+                <quantity>1100</quantity>
+              </Point>
+            </Period>
+          </TimeSeries>
+        </GL_MarketDocument>
+        """.strip()
+
+        payload = self._zip_documents(xml_doc, second_doc)
+
+        response = MagicMock()
+        response.status_code = 200
+        response.headers = {"Content-Type": "application/zip"}
+        response.content = payload
+
+        with patch.object(self.client, "_base_request", return_value=response):
+            result = self.client.query_total_load_forecast(
+                "BE",
+                datetime(2024, 10, 1),
+                datetime(2024, 10, 2),
+            )
+
+        expected = {
+            self.client._parse_timestamp("2024-10-01T00:00Z"): 1000.0,
+            self.client._parse_timestamp("2024-10-01T01:00Z"): 1100.0,
+        }
+
+        self.assertDictEqual(result, expected)
 
     def test_be_60m(self):
         with open(DATASET_DIR / "BE_60M.xml") as f:
