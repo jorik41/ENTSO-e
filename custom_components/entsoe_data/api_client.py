@@ -393,7 +393,7 @@ class EntsoeClient:
             return None
 
     # lets process the received document
-    def parse_price_document(self, document: Union[str, bytes]) -> str:
+    def parse_price_document(self, document: Union[str, bytes]) -> Dict[datetime, float]:
 
         root = self._remove_namespace(ET.fromstring(document))
         _LOGGER.debug(f"content: {root}")
