@@ -91,19 +91,25 @@ class EntsoeBaseCoordinator(DataUpdateCoordinator[dict]):
         if not missing_areas and not zero_only_areas:
             return None
 
+        fallback_required = False
+
         if missing_areas:
             self.logger.warning(
                 "Missing ENTSO-e %s data for: %s.",
                 dataset_description,
                 self._format_area_names(missing_areas),
             )
+            fallback_required = True
 
         if zero_only_areas:
-            self.logger.error(
+            self.logger.warning(
                 "ENTSO-e %s data returned zero-only values for: %s.",
                 dataset_description,
                 self._format_area_names(zero_only_areas),
             )
+
+        if not fallback_required:
+            return None
 
         if self.data:
             self.logger.warning(
