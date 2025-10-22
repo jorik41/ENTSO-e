@@ -20,7 +20,7 @@ An ENTSO-e RESTful API key is required. Request one by registering on the [Trans
 
 1. Open **HACS → Integrations** and search for **“ENTSO-e”**.
 2. Select **ENTSO-e Data** and follow the prompts to install it.
-3. Alternatively, jump straight to the listing using this badge: [![Open the repository in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=JaccoR&repository=hass-entso-e&category=integration)
+3. Alternatively, jump straight to the listing using this badge: [![Open the repository in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jorik41&repository=ENTSO-e&category=integration)
 4. Restart Home Assistant after installation to load the new integration.
 
 ### Manual installation
