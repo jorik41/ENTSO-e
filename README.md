@@ -84,3 +84,7 @@ If an update does not apply cleanly or you encounter issues, reinstalling the in
 - Your ENTSO-e API key is stored securely in Home Assistant's configuration entry storage and is only used to authenticate requests made by the integration.
 - All data is fetched directly from the ENTSO-e Transparency Platform over HTTPS using the official REST interface exposed by ENTSO-e.
 - The integration does not transmit or store any personal information beyond the API key required for authentication.
+
+## AI-generated content disclaimer
+
+This documentation has been modified and written with the assistance of artificial intelligence tools.
