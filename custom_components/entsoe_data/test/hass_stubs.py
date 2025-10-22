@@ -325,7 +325,11 @@ def install_hass_stubs() -> None:
             super().__init__("HTTPError")
             self.response = response or _Response()
 
+    class RequestException(Exception):
+        """Base requests exception used by the integration."""
+
     exceptions.HTTPError = HTTPError
+    exceptions.RequestException = RequestException
     requests.exceptions = exceptions
 
     class Session:  # pragma: no cover - stub

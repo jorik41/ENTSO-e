@@ -3,10 +3,12 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
+from typing import Any, Iterable
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt
+from requests import exceptions as requests_exceptions
 from requests.exceptions import HTTPError
 
 from .api_client import EntsoeClient, PROCESS_TYPE_DAY_AHEAD
@@ -30,10 +32,89 @@ class EntsoeBaseCoordinator(DataUpdateCoordinator[dict]):
     ) -> None:
         super().__init__(hass, logger, name=name, update_interval=update_interval)
 
+    def _copy_data(self) -> dict[datetime, Any]:
+        if not self.data:
+            return {}
+        copied: dict[datetime, Any] = {}
+        for timestamp, value in self.data.items():
+            if isinstance(value, dict):
+                copied[timestamp] = dict(value)
+            else:
+                copied[timestamp] = value
+        return copied
+
+    def _cached_data_if_sufficient(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        margin: timedelta = timedelta(hours=1),
+    ) -> dict[datetime, Any] | None:
+        timestamps = self._sorted_timestamps()
+        if not timestamps:
+            return None
+
+        earliest, latest = timestamps[0], timestamps[-1]
+        if earliest <= start and latest >= end - margin:
+            self.logger.debug(
+                "Using cached ENTSO-e data spanning %s – %s for the requested window %s – %s",
+                earliest,
+                latest,
+                start,
+                end,
+            )
+            return self._copy_data()
+
+        return None
+
     def _sorted_timestamps(self) -> list[datetime]:
         if not self.data:
             return []
         return sorted(self.data.keys())
+
+    def _format_area_names(self, areas: Iterable[str]) -> str:
+        names: list[str] = []
+        for area_key in sorted(areas):
+            info = AREA_INFO.get(area_key)
+            if info and info.get("name"):
+                names.append(info["name"])
+            else:
+                names.append(area_key)
+        return ", ".join(names)
+
+    def _handle_total_europe_issues(
+        self,
+        missing_areas: set[str],
+        zero_only_areas: set[str],
+        dataset_description: str,
+    ) -> dict[datetime, Any] | None:
+        if not missing_areas and not zero_only_areas:
+            return None
+
+        if missing_areas:
+            self.logger.warning(
+                "Missing ENTSO-e %s data for: %s.",
+                dataset_description,
+                self._format_area_names(missing_areas),
+            )
+
+        if zero_only_areas:
+            self.logger.error(
+                "ENTSO-e %s data returned zero-only values for: %s.",
+                dataset_description,
+                self._format_area_names(zero_only_areas),
+            )
+
+        if self.data:
+            self.logger.warning(
+                "Retaining cached ENTSO-e %s data until full European coverage is restored.",
+                dataset_description,
+            )
+            return self._copy_data()
+
+        raise UpdateFailed(
+            f"Incomplete ENTSO-e {dataset_description} data for Europe; see logs for details."
+        )
 
     def _reference_time(self, reference: datetime | None = None) -> datetime:
         if reference is not None:
@@ -87,13 +168,28 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
         start = dt.now() - timedelta(days=1)
         end = start + timedelta(days=3)
 
+        cached = self._cached_data_if_sufficient(start, end)
+        if cached is not None:
+            return cached
+
         try:
             if self.area_key == TOTAL_EUROPE_AREA:
-                response = await self.hass.async_add_executor_job(
+                (
+                    response,
+                    missing_areas,
+                    zero_only_areas,
+                ) = await self.hass.async_add_executor_job(
                     self._query_total_europe_generation,
                     start,
                     end,
                 )
+                fallback = self._handle_total_europe_issues(
+                    missing_areas,
+                    zero_only_areas,
+                    "generation",
+                )
+                if fallback is not None:
+                    return fallback
             else:
                 response = await self.hass.async_add_executor_job(
                     self._client.query_generation_per_type,
@@ -105,6 +201,14 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
             if exc.response.status_code == 401:
                 raise UpdateFailed("Unauthorized: Please check your API-key.") from exc
             raise
+        except requests_exceptions.RequestException as exc:
+            if self.data:
+                self.logger.warning(
+                    "Network error while updating ENTSO-e generation data: %s. Using cached values until the connection is restored.",
+                    exc,
+                )
+                return self._copy_data()
+            raise UpdateFailed("Failed to retrieve ENTSO-e generation data.") from exc
 
         if not response:
             self._available_categories = set()
@@ -127,11 +231,13 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
 
     def _query_total_europe_generation(
         self, start: datetime, end: datetime
-    ) -> dict[datetime, dict[str, float]]:
+    ) -> tuple[dict[datetime, dict[str, float]], set[str], set[str]]:
         aggregate: defaultdict[datetime, defaultdict[str, float]] = defaultdict(
             lambda: defaultdict(float)
         )
         seen_codes: set[str] = set()
+        missing_areas: set[str] = set()
+        zero_only_areas: set[str] = set()
 
         for area_key, info in AREA_INFO.items():
             if area_key == TOTAL_EUROPE_AREA:
@@ -144,13 +250,23 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
 
             response = self._client.query_generation_per_type(code, start, end)
             if not response:
+                missing_areas.add(area_key)
                 continue
 
+            has_non_zero = False
             for timestamp, values in response.items():
                 for category, value in values.items():
                     aggregate[timestamp][category] += value
+                    if value:
+                        has_non_zero = True
 
-        return {timestamp: dict(values) for timestamp, values in aggregate.items()}
+            if not has_non_zero:
+                zero_only_areas.add(area_key)
+
+        aggregated = {
+            timestamp: dict(values) for timestamp, values in aggregate.items()
+        }
+        return aggregated, missing_areas, zero_only_areas
 
     def categories(self) -> list[str]:
         return sorted(self._available_categories)
@@ -212,13 +328,28 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
         start = dt.now() - timedelta(days=1)
         end = start + self._look_ahead
 
+        cached = self._cached_data_if_sufficient(start, end)
+        if cached is not None:
+            return cached
+
         try:
             if self.area_key == TOTAL_EUROPE_AREA:
-                response = await self.hass.async_add_executor_job(
+                (
+                    response,
+                    missing_areas,
+                    zero_only_areas,
+                ) = await self.hass.async_add_executor_job(
                     self._query_total_europe_load,
                     start,
                     end,
                 )
+                fallback = self._handle_total_europe_issues(
+                    missing_areas,
+                    zero_only_areas,
+                    f"load {self.horizon}",
+                )
+                if fallback is not None:
+                    return fallback
             else:
                 response = await self.hass.async_add_executor_job(
                     self._client.query_total_load_forecast,
@@ -238,12 +369,24 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
                 )
                 return {}
             raise
+        except requests_exceptions.RequestException as exc:
+            if self.data:
+                self.logger.warning(
+                    "Network error while updating ENTSO-e load data: %s. Using cached values until the connection is restored.",
+                    exc,
+                )
+                return self._copy_data()
+            raise UpdateFailed("Failed to retrieve ENTSO-e load data.") from exc
 
         return response or {}
 
-    def _query_total_europe_load(self, start: datetime, end: datetime) -> dict[datetime, float]:
+    def _query_total_europe_load(
+        self, start: datetime, end: datetime
+    ) -> tuple[dict[datetime, float], set[str], set[str]]:
         aggregate: defaultdict[datetime, float] = defaultdict(float)
         seen_codes: set[str] = set()
+        missing_areas: set[str] = set()
+        zero_only_areas: set[str] = set()
 
         for area_key, info in AREA_INFO.items():
             if area_key == TOTAL_EUROPE_AREA:
@@ -258,12 +401,17 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
                 code, start, end, self.process_type
             )
             if not response:
+                missing_areas.add(area_key)
                 continue
 
+            has_non_zero = any(value for value in response.values())
             for timestamp, value in response.items():
                 aggregate[timestamp] += value
 
-        return dict(aggregate)
+            if not has_non_zero:
+                zero_only_areas.add(area_key)
+
+        return dict(aggregate), missing_areas, zero_only_areas
 
     def current_value(self, reference: datetime | None = None) -> float | None:
         timestamp = self._select_current_timestamp(reference)
@@ -321,6 +469,10 @@ class EntsoeGenerationForecastCoordinator(EntsoeBaseCoordinator):
         start = dt.now() - timedelta(days=1)
         end = start + timedelta(days=3)
 
+        cached = self._cached_data_if_sufficient(start, end)
+        if cached is not None:
+            return cached
+
         try:
             response: dict[datetime, float] | None = await self.hass.async_add_executor_job(
                 self._client.query_generation_forecast,
@@ -332,6 +484,14 @@ class EntsoeGenerationForecastCoordinator(EntsoeBaseCoordinator):
             if getattr(exc.response, "status_code", None) == 401:
                 raise UpdateFailed("Unauthorized: Please check your API-key.") from exc
             raise
+        except requests_exceptions.RequestException as exc:
+            if self.data:
+                self.logger.warning(
+                    "Network error while updating ENTSO-e generation forecast data: %s. Using cached values until the connection is restored.",
+                    exc,
+                )
+                return self._copy_data()
+            raise UpdateFailed("Failed to retrieve ENTSO-e generation forecast data.") from exc
 
         return response or {}
 
@@ -393,13 +553,28 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
         start = dt.now() - timedelta(days=1)
         end = start + timedelta(days=3)
 
+        cached = self._cached_data_if_sufficient(start, end)
+        if cached is not None:
+            return cached
+
         try:
             if self.area_key == TOTAL_EUROPE_AREA:
-                response = await self.hass.async_add_executor_job(
+                (
+                    response,
+                    missing_areas,
+                    zero_only_areas,
+                ) = await self.hass.async_add_executor_job(
                     self._query_total_europe_wind_solar_forecast,
                     start,
                     end,
                 )
+                fallback = self._handle_total_europe_issues(
+                    missing_areas,
+                    zero_only_areas,
+                    "wind and solar forecast",
+                )
+                if fallback is not None:
+                    return fallback
             else:
                 response = await self.hass.async_add_executor_job(
                     self._client.query_wind_solar_forecast,
@@ -411,6 +586,16 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
             if getattr(exc.response, "status_code", None) == 401:
                 raise UpdateFailed("Unauthorized: Please check your API-key.") from exc
             raise
+        except requests_exceptions.RequestException as exc:
+            if self.data:
+                self.logger.warning(
+                    "Network error while updating ENTSO-e wind and solar forecast data: %s. Using cached values until the connection is restored.",
+                    exc,
+                )
+                return self._copy_data()
+            raise UpdateFailed(
+                "Failed to retrieve ENTSO-e wind and solar forecast data."
+            ) from exc
 
         if not response:
             self._available_categories = set()
@@ -427,11 +612,13 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
 
     def _query_total_europe_wind_solar_forecast(
         self, start: datetime, end: datetime
-    ) -> dict[datetime, dict[str, float]]:
+    ) -> tuple[dict[datetime, dict[str, float]], set[str], set[str]]:
         aggregate: defaultdict[datetime, defaultdict[str, float]] = defaultdict(
             lambda: defaultdict(float)
         )
         seen_codes: set[str] = set()
+        missing_areas: set[str] = set()
+        zero_only_areas: set[str] = set()
 
         for area_key, info in AREA_INFO.items():
             if area_key == TOTAL_EUROPE_AREA:
@@ -444,13 +631,23 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
 
             response = self._client.query_wind_solar_forecast(code, start, end)
             if not response:
+                missing_areas.add(area_key)
                 continue
 
+            has_non_zero = False
             for timestamp, values in response.items():
                 for category, value in values.items():
                     aggregate[timestamp][category] += value
+                    if value:
+                        has_non_zero = True
 
-        return {timestamp: dict(values) for timestamp, values in aggregate.items()}
+            if not has_non_zero:
+                zero_only_areas.add(area_key)
+
+        aggregated = {
+            timestamp: dict(values) for timestamp, values in aggregate.items()
+        }
+        return aggregated, missing_areas, zero_only_areas
 
     def categories(self) -> list[str]:
         return sorted(self._available_categories)

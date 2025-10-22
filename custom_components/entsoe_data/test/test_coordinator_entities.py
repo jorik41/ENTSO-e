@@ -7,6 +7,8 @@ from types import SimpleNamespace
 import pytest
 import requests
 
+from homeassistant.helpers.update_coordinator import UpdateFailed
+
 PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 sys.path.append(str(PACKAGE_ROOT))
 
@@ -265,10 +267,46 @@ def test_load_coordinator_total_europe_process_type(monkeypatch, hass):
 
     monkeypatch.setattr(coordinator._client, "query_total_load_forecast", _fake_query)
 
-    asyncio.run(coordinator._async_update_data())
+    with pytest.raises(UpdateFailed):
+        asyncio.run(coordinator._async_update_data())
 
     assert called
     assert set(called) == {"A32"}
+
+
+def test_load_coordinator_total_europe_uses_cache_on_partial(monkeypatch, hass):
+    minimal_area_info = {
+        TOTAL_EUROPE_AREA: {"code": "10Y1001A1001A876", "name": "Europe"},
+        "DE": {"code": "DE_LU", "name": "Germany"},
+        "FR": {"code": "FR", "name": "France"},
+    }
+    monkeypatch.setattr(
+        "custom_components.entsoe_data.coordinator.AREA_INFO",
+        minimal_area_info,
+        raising=False,
+    )
+
+    coordinator = EntsoeLoadCoordinator(
+        hass,
+        "test",
+        TOTAL_EUROPE_AREA,
+        process_type="A32",
+        look_ahead=timedelta(days=30),
+        horizon="month_ahead",
+    )
+
+    timestamp = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
+    cached = {timestamp: 123.0}
+    coordinator.data = cached
+
+    def _fake_query(area, start, end, process_type):
+        return {}
+
+    monkeypatch.setattr(coordinator._client, "query_total_load_forecast", _fake_query)
+
+    data = asyncio.run(coordinator._async_update_data())
+
+    assert data == cached
 
 
 def test_load_sensor_descriptions_include_horizons():
