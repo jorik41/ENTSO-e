@@ -11,7 +11,9 @@ from typing import Dict, Union
 
 import pytz
 import requests
+from requests.adapters import HTTPAdapter
 from requests import exceptions as requests_exceptions
+from urllib3.util.retry import Retry
 
 _LOGGER = logging.getLogger(__name__)
 BASE_URLS: tuple[str, ...] = (
@@ -72,6 +74,18 @@ class EntsoeClient:
             raise TypeError("API key cannot be empty")
         self.api_key = api_key
         self._session: requests.Session = requests.Session()
+        retry = Retry(
+            total=3,
+            connect=3,
+            read=3,
+            status=3,
+            status_forcelist=(500, 502, 503, 504),
+            backoff_factor=0.5,
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
 
     def _base_request(
         self, params: Dict, start: datetime, end: datetime

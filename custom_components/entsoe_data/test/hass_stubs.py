@@ -333,10 +333,35 @@ def install_hass_stubs() -> None:
     requests.exceptions = exceptions
 
     class Session:  # pragma: no cover - stub
+        def __init__(self) -> None:
+            self.mount_calls: list[tuple[str, Any]] = []
+
         def get(self, *args: Any, **kwargs: Any) -> Any:
             raise NotImplementedError
 
+        def mount(self, prefix: str, adapter: Any) -> None:
+            self.mount_calls.append((prefix, adapter))
+
     requests.Session = Session
+
+    adapters_mod = _ensure_module("requests.adapters")
+
+    class HTTPAdapter:  # pragma: no cover - stub
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+    adapters_mod.HTTPAdapter = HTTPAdapter
+    requests.adapters = adapters_mod
+
+    urllib3 = _ensure_module("urllib3")
+    urllib3_util = _ensure_module("urllib3.util")
+    retry_mod = _ensure_module("urllib3.util.retry")
+
+    class Retry:  # pragma: no cover - stub
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+    retry_mod.Retry = Retry
 
     # ------------------------------------------------------------------
     # pytz stub used by the API client
