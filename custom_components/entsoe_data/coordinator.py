@@ -87,6 +87,7 @@ class EntsoeBaseCoordinator(DataUpdateCoordinator[dict]):
         missing_areas: set[str],
         zero_only_areas: set[str],
         dataset_description: str,
+        has_fresh_data: bool,
     ) -> dict[datetime, Any] | None:
         if not missing_areas and not zero_only_areas:
             return None
@@ -109,6 +110,13 @@ class EntsoeBaseCoordinator(DataUpdateCoordinator[dict]):
             )
 
         if not fallback_required:
+            return None
+
+        if has_fresh_data:
+            self.logger.debug(
+                "Continuing with partial ENTSO-e %s data for Europe due to missing areas.",
+                dataset_description,
+            )
             return None
 
         if self.data:
@@ -193,6 +201,7 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
                     missing_areas,
                     zero_only_areas,
                     "generation",
+                    bool(response),
                 )
                 if fallback is not None:
                     return fallback
@@ -353,6 +362,7 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
                     missing_areas,
                     zero_only_areas,
                     f"load {self.horizon}",
+                    bool(response),
                 )
                 if fallback is not None:
                     return fallback
@@ -578,6 +588,7 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
                     missing_areas,
                     zero_only_areas,
                     "wind and solar forecast",
+                    bool(response),
                 )
                 if fallback is not None:
                     return fallback
