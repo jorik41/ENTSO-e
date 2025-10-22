@@ -348,7 +348,7 @@ def install_hass_stubs() -> None:
 
     class HTTPAdapter:  # pragma: no cover - stub
         def __init__(self, *args: Any, **kwargs: Any) -> None:
-            return None
+            pass
 
     adapters_mod.HTTPAdapter = HTTPAdapter
     requests.adapters = adapters_mod
@@ -359,7 +359,7 @@ def install_hass_stubs() -> None:
 
     class Retry:  # pragma: no cover - stub
         def __init__(self, *args: Any, **kwargs: Any) -> None:
-            return None
+            pass
 
     retry_mod.Retry = Retry
 
