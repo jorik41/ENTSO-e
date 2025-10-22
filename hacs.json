@@ -1,5 +1,5 @@
 {
-  "name": "ENTSO-e Transparency Platform",
+  "name": "ENTSO-e Data",
   "homeassistant": "2024.1.0",
   "render_readme": true,
   "zip_release": true,

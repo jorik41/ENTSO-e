@@ -1,11 +1,11 @@
 {
   "domain": "entsoe_data",
   "name": "ENTSO-e Data",
-  "codeowners": ["@JaccoR"],
+  "codeowners": ["@jorik41"],
   "config_flow": true,
-  "documentation": "https://github.com/JaccoR/hass-entso-e",
+  "documentation": "https://github.com/jorik41/ENTSO-e",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/JaccoR/hass-entso-e/issues",
+  "issue_tracker": "https://github.com/jorik41/ENTSO-e/issues",
   "requirements": ["requests"],
   "version": "0.7.0"
 }
