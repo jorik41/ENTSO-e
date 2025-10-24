@@ -674,7 +674,21 @@ class _HourlyCoordinatorSensor(CoordinatorEntity, RestoreSensor):
 
     @property
     def available(self) -> bool:
-        return self._last_update_success and super().available
+        """Check if sensor is available.
+
+        A sensor is unavailable if:
+        1. The last update failed
+        2. The coordinator is unavailable
+        3. The coordinator's data is stale (prevents ML training on bad data)
+        """
+        if not self._last_update_success:
+            return False
+        if not super().available:
+            return False
+        # Check if coordinator data is stale (important for ML model training)
+        if hasattr(self.coordinator, 'is_data_stale') and self.coordinator.is_data_stale():
+            return False
+        return True
 
     def _handle_coordinator_update(self) -> None:
         super()._handle_coordinator_update()
@@ -715,7 +729,10 @@ class EntsoeGenerationSensor(_HourlyCoordinatorSensor):
 
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
-            raise RuntimeError("No generation data available")
+            # Check if data is stale to provide better error message
+            if hasattr(self.coordinator, 'last_successful_update') and self.coordinator.last_successful_update:
+                raise RuntimeError("No generation data available (data may be stale or API connection failed)")
+            raise RuntimeError("No generation data available (waiting for first successful update)")
 
         if self.entity_description.value_fn is None:
             raise RuntimeError("Missing value function")
@@ -762,7 +779,10 @@ class EntsoeLoadSensor(_HourlyCoordinatorSensor):
 
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
-            raise RuntimeError("No load forecast data available")
+            # Check if data is stale to provide better error message
+            if hasattr(self.coordinator, 'last_successful_update') and self.coordinator.last_successful_update:
+                raise RuntimeError("No load forecast data available (data may be stale or API connection failed)")
+            raise RuntimeError("No load forecast data available (waiting for first successful update)")
 
         if self.entity_description.value_fn is None:
             raise RuntimeError("Missing value function")
@@ -809,7 +829,10 @@ class EntsoeGenerationForecastSensor(_HourlyCoordinatorSensor):
 
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
-            raise RuntimeError("No generation forecast data available")
+            # Check if data is stale to provide better error message
+            if hasattr(self.coordinator, 'last_successful_update') and self.coordinator.last_successful_update:
+                raise RuntimeError("No generation forecast data available (data may be stale or API connection failed)")
+            raise RuntimeError("No generation forecast data available (waiting for first successful update)")
 
         if self.entity_description.value_fn is None:
             raise RuntimeError("Missing value function")
@@ -856,7 +879,10 @@ class EntsoeWindSolarForecastSensor(_HourlyCoordinatorSensor):
 
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
-            raise RuntimeError("No wind and solar forecast data available")
+            # Check if data is stale to provide better error message
+            if hasattr(self.coordinator, 'last_successful_update') and self.coordinator.last_successful_update:
+                raise RuntimeError("No wind and solar forecast data available (data may be stale or API connection failed)")
+            raise RuntimeError("No wind and solar forecast data available (waiting for first successful update)")
 
         if self.entity_description.value_fn is None:
             raise RuntimeError("Missing value function")

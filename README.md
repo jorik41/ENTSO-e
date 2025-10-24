@@ -79,6 +79,17 @@ The integration is under active development. When a new version is released:
 
 If an update does not apply cleanly or you encounter issues, reinstalling the integration usually resolves the problem.
 
+## Data reliability and staleness protection
+
+The integration implements intelligent data staleness detection to ensure you always receive accurate, timely information—critical for ML model training and automation:
+
+- **Staleness threshold**: Sensors become unavailable if data hasn't been successfully updated in **3× the normal update interval** (e.g., 180 minutes for hourly sensors).
+- **Network resilience**: When API endpoints fail temporarily, the integration uses cached data while continuing to retry updates.
+- **ML-safe behavior**: Sensors mark themselves as unavailable rather than showing stale data, preventing your models from training on unreliable information.
+- **Smart recovery**: Once API connectivity is restored, sensors automatically resume with fresh data and become available again.
+
+You can adjust the staleness multiplier by modifying `STALENESS_MULTIPLIER` in `custom_components/entsoe_data/const.py` (default: 3).
+
 ## Data handling and privacy
 
 - Your ENTSO-e API key is stored securely in Home Assistant's configuration entry storage and is only used to authenticate requests made by the integration.
