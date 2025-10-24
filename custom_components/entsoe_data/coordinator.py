@@ -10,18 +10,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt
 from requests import exceptions as requests_exceptions
 
-REQUEST_TIMEOUT_ERRORS: tuple[type[requests_exceptions.RequestException], ...] = tuple(
-    error
-    for error in (
-        getattr(requests_exceptions, "Timeout", None),
-        getattr(requests_exceptions, "ReadTimeout", None),
-        getattr(requests_exceptions, "ConnectTimeout", None),
-    )
-    if error is not None
+REQUEST_TIMEOUT_ERRORS: tuple[type[requests_exceptions.RequestException], ...] = (
+    requests_exceptions.Timeout,
+    requests_exceptions.ReadTimeout,
+    requests_exceptions.ConnectTimeout,
 )
-
-if not REQUEST_TIMEOUT_ERRORS:
-    REQUEST_TIMEOUT_ERRORS = (requests_exceptions.RequestException,)
 from requests.exceptions import HTTPError
 
 from .api_client import EntsoeClient, PROCESS_TYPE_DAY_AHEAD
