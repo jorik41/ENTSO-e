@@ -535,7 +535,7 @@ class EntsoeGenerationForecastCoordinator(EntsoeBaseCoordinator):
                 return self._copy_data()
             raise UpdateFailed("Failed to retrieve ENTSO-e generation forecast data.") from exc
 
-        if response:
+        if response is not None:
             self.last_successful_update = dt.now()
         return response or {}
 
