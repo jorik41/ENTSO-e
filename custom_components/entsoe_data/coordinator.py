@@ -9,6 +9,19 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt
 from requests import exceptions as requests_exceptions
+
+REQUEST_TIMEOUT_ERRORS: tuple[type[requests_exceptions.RequestException], ...] = tuple(
+    error
+    for error in (
+        getattr(requests_exceptions, "Timeout", None),
+        getattr(requests_exceptions, "ReadTimeout", None),
+        getattr(requests_exceptions, "ConnectTimeout", None),
+    )
+    if error is not None
+)
+
+if not REQUEST_TIMEOUT_ERRORS:
+    REQUEST_TIMEOUT_ERRORS = (requests_exceptions.RequestException,)
 from requests.exceptions import HTTPError
 
 from .api_client import EntsoeClient, PROCESS_TYPE_DAY_AHEAD
@@ -496,6 +509,21 @@ class EntsoeGenerationForecastCoordinator(EntsoeBaseCoordinator):
                 start,
                 end,
             )
+        except REQUEST_TIMEOUT_ERRORS as exc:
+            self.logger.warning(
+                "Timed out while updating ENTSO-e generation forecast data: %s. Retrying with smaller windows.",
+                exc,
+            )
+            try:
+                response = await self._fetch_generation_forecast_in_chunks(start, end)
+            except requests_exceptions.RequestException as chunk_exc:
+                if self.data:
+                    self.logger.warning(
+                        "Network error while updating ENTSO-e generation forecast data: %s. Using cached values until the connection is restored.",
+                        chunk_exc,
+                    )
+                    return self._copy_data()
+                raise UpdateFailed("Failed to retrieve ENTSO-e generation forecast data.") from chunk_exc
         except HTTPError as exc:  # pragma: no cover - matching behaviour of base coordinator
             if getattr(exc.response, "status_code", None) == 401:
                 raise UpdateFailed("Unauthorized: Please check your API-key.") from exc
@@ -510,6 +538,53 @@ class EntsoeGenerationForecastCoordinator(EntsoeBaseCoordinator):
             raise UpdateFailed("Failed to retrieve ENTSO-e generation forecast data.") from exc
 
         return response or {}
+
+    async def _fetch_generation_forecast_in_chunks(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        chunk_size: timedelta = timedelta(days=1),
+    ) -> dict[datetime, float]:
+        """Fetch generation forecast data in smaller windows to avoid timeouts."""
+
+        aggregate: defaultdict[datetime, float] = defaultdict(float)
+        cursor = start
+        last_error: requests_exceptions.RequestException | None = None
+        had_success = False
+
+        while cursor < end:
+            chunk_end = min(cursor + chunk_size, end)
+            try:
+                chunk = await self.hass.async_add_executor_job(
+                    self._client.query_generation_forecast,
+                    self.area,
+                    cursor,
+                    chunk_end,
+                )
+            except REQUEST_TIMEOUT_ERRORS as exc:
+                self.logger.warning(
+                    "Timed out while fetching ENTSO-e generation forecast chunk %s – %s: %s",
+                    cursor,
+                    chunk_end,
+                    exc,
+                )
+                last_error = exc
+            except requests_exceptions.RequestException as exc:
+                last_error = exc
+                break
+            else:
+                if chunk:
+                    had_success = True
+                    for timestamp, value in chunk.items():
+                        aggregate[timestamp] += float(value)
+
+            cursor = chunk_end
+
+        if not had_success and last_error is not None:
+            raise last_error
+
+        return {timestamp: aggregate[timestamp] for timestamp in sorted(aggregate)}
 
     def current_value(self, reference: datetime | None = None) -> float | None:
         timestamp = self._select_current_timestamp(reference)

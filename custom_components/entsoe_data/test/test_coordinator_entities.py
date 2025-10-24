@@ -624,6 +624,53 @@ def test_generation_forecast_sensor_attrs(hass):
     assert attrs["next_value"] == 1500.0
 
 
+def test_generation_forecast_timeout_recovers_with_chunks(monkeypatch, hass):
+    tzinfo = datetime.now().astimezone().tzinfo
+    fake_now = datetime(2024, 10, 24, 12, tzinfo=tzinfo)
+    monkeypatch.setattr(
+        "custom_components.entsoe_data.coordinator.dt.now", lambda: fake_now
+    )
+
+    coordinator = EntsoeGenerationForecastCoordinator(hass, "test", "BE")
+
+    calls: list[tuple[datetime, datetime]] = []
+
+    def _fake_query(area, start, end):
+        calls.append((start, end))
+        if len(calls) == 1:
+            raise requests.exceptions.RequestException("timeout")
+
+        rounded = start.replace(minute=0, second=0, microsecond=0)
+        return {rounded: 100.0}
+
+    monkeypatch.setattr(coordinator._client, "query_generation_forecast", _fake_query)
+
+    data = asyncio.run(coordinator._async_update_data())
+
+    assert data
+    assert len(calls) > 1
+    assert calls[0][0] == fake_now - timedelta(days=1)
+    assert calls[0][1] == fake_now - timedelta(days=1) + timedelta(days=3)
+
+
+def test_generation_forecast_timeout_failure_raises(monkeypatch, hass):
+    tzinfo = datetime.now().astimezone().tzinfo
+    fake_now = datetime(2024, 10, 24, 12, tzinfo=tzinfo)
+    monkeypatch.setattr(
+        "custom_components.entsoe_data.coordinator.dt.now", lambda: fake_now
+    )
+
+    coordinator = EntsoeGenerationForecastCoordinator(hass, "test", "BE")
+
+    def _raise(*args, **kwargs):
+        raise requests.exceptions.RequestException("timeout")
+
+    monkeypatch.setattr(coordinator._client, "query_generation_forecast", _raise)
+
+    with pytest.raises(UpdateFailed):
+        asyncio.run(coordinator._async_update_data())
+
+
 def test_wind_solar_sensor_category_handling(hass):
     coordinator = EntsoeWindSolarForecastCoordinator(hass, "test", "BE")
     timestamp = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
