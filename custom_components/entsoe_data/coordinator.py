@@ -22,6 +22,7 @@ from .const import (
     AREA_INFO,
     LOAD_FORECAST_HORIZON_DAY_AHEAD,
     LOAD_FORECAST_HORIZONS,
+    STALENESS_MULTIPLIER,
     TOTAL_EUROPE_AREA,
 )
 
@@ -37,6 +38,7 @@ class EntsoeBaseCoordinator(DataUpdateCoordinator[dict]):
         update_interval: timedelta,
     ) -> None:
         super().__init__(hass, logger, name=name, update_interval=update_interval)
+        self.last_successful_update: datetime | None = None
 
     def _copy_data(self) -> dict[datetime, Any]:
         if not self.data:
@@ -140,6 +142,27 @@ class EntsoeBaseCoordinator(DataUpdateCoordinator[dict]):
         if reference is not None:
             return reference
         return dt.now()
+
+    def is_data_stale(self) -> bool:
+        """Check if the data is stale based on last successful update.
+
+        Data is considered stale if we haven't successfully updated in
+        STALENESS_MULTIPLIER times the normal update interval.
+        This prevents ML models from training on unreliable data.
+        """
+        if self.last_successful_update is None:
+            # No successful update yet - data is stale
+            return True
+
+        if not self.data:
+            # No data available - considered stale
+            return True
+
+        # Check if we're past the staleness threshold
+        staleness_threshold = self.update_interval * STALENESS_MULTIPLIER
+        time_since_update = dt.now() - self.last_successful_update
+
+        return time_since_update > staleness_threshold
 
     def _select_current_timestamp(self, reference: datetime | None = None) -> datetime | None:
         ref = self._reference_time(reference)
@@ -248,6 +271,7 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
             categories.update(normalized_values.keys())
 
         self._available_categories = categories
+        self.last_successful_update = dt.now()
         return normalized
 
     def _query_total_europe_generation(
@@ -400,6 +424,8 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
                 return self._copy_data()
             raise UpdateFailed("Failed to retrieve ENTSO-e load data.") from exc
 
+        if response is not None:
+            self.last_successful_update = dt.now()
         return response or {}
 
     def _query_total_europe_load(
@@ -530,6 +556,8 @@ class EntsoeGenerationForecastCoordinator(EntsoeBaseCoordinator):
                 return self._copy_data()
             raise UpdateFailed("Failed to retrieve ENTSO-e generation forecast data.") from exc
 
+        if response is not None:
+            self.last_successful_update = dt.now()
         return response or {}
 
     async def _fetch_generation_forecast_in_chunks(
@@ -693,6 +721,7 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
             categories.update(values.keys())
 
         self._available_categories = categories
+        self.last_successful_update = dt.now()
         return normalized
 
     def _query_total_europe_wind_solar_forecast(

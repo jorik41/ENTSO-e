@@ -16,6 +16,13 @@ DOMAIN = "entsoe_data"
 UNIQUE_ID = f"{DOMAIN}_component"
 COMPONENT_TITLE = "ENTSO-e Data"
 
+# Data staleness configuration
+# Sensors become unavailable if data hasn't been successfully updated in
+# STALENESS_MULTIPLIER times the normal update interval.
+# This prevents ML models from training on unreliable/stale data.
+# Default: 3x (e.g., for 60min updates, data is stale after 180min)
+STALENESS_MULTIPLIER = 3
+
 CONF_API_KEY = "api_key"
 CONF_AREA = "area"
 CONF_ENABLE_GENERATION = "enable_generation"
