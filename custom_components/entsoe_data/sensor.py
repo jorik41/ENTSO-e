@@ -729,8 +729,14 @@ class EntsoeGenerationSensor(_HourlyCoordinatorSensor):
 
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
-            # No data available - set to None and let the available property handle sensor state
-            # This avoids noisy error logs when API is temporarily unavailable
+            # No fresh data available
+            # If we had successful updates before, keep showing the last known value
+            # until the API connection is restored (sensor will be marked unavailable if stale)
+            if hasattr(self.coordinator, 'last_successful_update') and self.coordinator.last_successful_update:
+                # Keep the previous sensor value - it will show correct forecast for current time
+                # The available property will mark sensor as unavailable if data is too stale
+                return
+            # First run with no data yet - set to None
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
             return
@@ -780,8 +786,14 @@ class EntsoeLoadSensor(_HourlyCoordinatorSensor):
 
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
-            # No data available - set to None and let the available property handle sensor state
-            # This avoids noisy error logs when API is temporarily unavailable
+            # No fresh data available
+            # If we had successful updates before, keep showing the last known value
+            # until the API connection is restored (sensor will be marked unavailable if stale)
+            if hasattr(self.coordinator, 'last_successful_update') and self.coordinator.last_successful_update:
+                # Keep the previous sensor value - it will show correct forecast for current time
+                # The available property will mark sensor as unavailable if data is too stale
+                return
+            # First run with no data yet - set to None
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
             return
@@ -831,8 +843,14 @@ class EntsoeGenerationForecastSensor(_HourlyCoordinatorSensor):
 
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
-            # No data available - set to None and let the available property handle sensor state
-            # This avoids noisy error logs when API is temporarily unavailable
+            # No fresh data available
+            # If we had successful updates before, keep showing the last known value
+            # until the API connection is restored (sensor will be marked unavailable if stale)
+            if hasattr(self.coordinator, 'last_successful_update') and self.coordinator.last_successful_update:
+                # Keep the previous sensor value - it will show correct forecast for current time
+                # The available property will mark sensor as unavailable if data is too stale
+                return
+            # First run with no data yet - set to None
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
             return
@@ -882,8 +900,14 @@ class EntsoeWindSolarForecastSensor(_HourlyCoordinatorSensor):
 
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
-            # No data available - set to None and let the available property handle sensor state
-            # This avoids noisy error logs when API is temporarily unavailable
+            # No fresh data available
+            # If we had successful updates before, keep showing the last known value
+            # until the API connection is restored (sensor will be marked unavailable if stale)
+            if hasattr(self.coordinator, 'last_successful_update') and self.coordinator.last_successful_update:
+                # Keep the previous sensor value - it will show correct forecast for current time
+                # The available property will mark sensor as unavailable if data is too stale
+                return
+            # First run with no data yet - set to None
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
             return
