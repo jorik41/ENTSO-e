@@ -729,10 +729,11 @@ class EntsoeGenerationSensor(_HourlyCoordinatorSensor):
 
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
-            # Check if data is stale to provide better error message
-            if hasattr(self.coordinator, 'last_successful_update') and self.coordinator.last_successful_update:
-                raise RuntimeError("No generation data available (data may be stale or API connection failed)")
-            raise RuntimeError("No generation data available (waiting for first successful update)")
+            # No data available - set to None and let the available property handle sensor state
+            # This avoids noisy error logs when API is temporarily unavailable
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {}
+            return
 
         if self.entity_description.value_fn is None:
             raise RuntimeError("Missing value function")
@@ -779,10 +780,11 @@ class EntsoeLoadSensor(_HourlyCoordinatorSensor):
 
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
-            # Check if data is stale to provide better error message
-            if hasattr(self.coordinator, 'last_successful_update') and self.coordinator.last_successful_update:
-                raise RuntimeError("No load forecast data available (data may be stale or API connection failed)")
-            raise RuntimeError("No load forecast data available (waiting for first successful update)")
+            # No data available - set to None and let the available property handle sensor state
+            # This avoids noisy error logs when API is temporarily unavailable
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {}
+            return
 
         if self.entity_description.value_fn is None:
             raise RuntimeError("Missing value function")
@@ -829,10 +831,11 @@ class EntsoeGenerationForecastSensor(_HourlyCoordinatorSensor):
 
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
-            # Check if data is stale to provide better error message
-            if hasattr(self.coordinator, 'last_successful_update') and self.coordinator.last_successful_update:
-                raise RuntimeError("No generation forecast data available (data may be stale or API connection failed)")
-            raise RuntimeError("No generation forecast data available (waiting for first successful update)")
+            # No data available - set to None and let the available property handle sensor state
+            # This avoids noisy error logs when API is temporarily unavailable
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {}
+            return
 
         if self.entity_description.value_fn is None:
             raise RuntimeError("Missing value function")
@@ -879,10 +882,11 @@ class EntsoeWindSolarForecastSensor(_HourlyCoordinatorSensor):
 
     async def _async_handle_coordinator_update(self) -> None:
         if not self.coordinator.data:
-            # Check if data is stale to provide better error message
-            if hasattr(self.coordinator, 'last_successful_update') and self.coordinator.last_successful_update:
-                raise RuntimeError("No wind and solar forecast data available (data may be stale or API connection failed)")
-            raise RuntimeError("No wind and solar forecast data available (waiting for first successful update)")
+            # No data available - set to None and let the available property handle sensor state
+            # This avoids noisy error logs when API is temporarily unavailable
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {}
+            return
 
         if self.entity_description.value_fn is None:
             raise RuntimeError("Missing value function")
