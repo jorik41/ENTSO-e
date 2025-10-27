@@ -21,7 +21,10 @@ from .api_client import EntsoeClient, PROCESS_TYPE_DAY_AHEAD
 from .const import (
     AREA_INFO,
     LOAD_FORECAST_HORIZON_DAY_AHEAD,
+    LOAD_FORECAST_HORIZON_MONTH_AHEAD,
     LOAD_FORECAST_HORIZONS,
+    LOAD_FORECAST_HORIZON_WEEK_AHEAD,
+    LOAD_FORECAST_HORIZON_YEAR_AHEAD,
     STALENESS_MULTIPLIER,
     TOTAL_EUROPE_AREA,
 )
@@ -39,6 +42,11 @@ class EntsoeBaseCoordinator(DataUpdateCoordinator[dict]):
     ) -> None:
         super().__init__(hass, logger, name=name, update_interval=update_interval)
         self.last_successful_update: datetime | None = None
+        self._last_total_europe_issues: dict[
+            str, tuple[frozenset[str], frozenset[str]]
+        ] = {}
+        self._last_total_europe_fallback: dict[str, bool] = {}
+        self._last_total_europe_no_data: dict[str, bool] = {}
 
     def _copy_data(self) -> dict[datetime, Any]:
         if not self.data:
@@ -97,46 +105,101 @@ class EntsoeBaseCoordinator(DataUpdateCoordinator[dict]):
         dataset_description: str,
         has_fresh_data: bool,
     ) -> dict[datetime, Any] | None:
-        if not missing_areas and not zero_only_areas:
-            return None
+        missing_set = set(missing_areas)
+        zero_set = set(zero_only_areas)
 
-        fallback_required = False
+        previous_missing, previous_zero = self._last_total_europe_issues.get(
+            dataset_description, (frozenset(), frozenset())
+        )
+        prev_missing_set = set(previous_missing)
+        prev_zero_set = set(previous_zero)
 
-        if missing_areas:
+        new_missing = missing_set - prev_missing_set
+        resolved_missing = prev_missing_set - missing_set
+        new_zero_only = zero_set - prev_zero_set
+        resolved_zero_only = prev_zero_set - zero_set
+
+        if new_missing:
             self.logger.warning(
                 "Missing ENTSO-e %s data for: %s.",
                 dataset_description,
-                self._format_area_names(missing_areas),
+                self._format_area_names(new_missing),
             )
-            fallback_required = True
+        if resolved_missing:
+            self.logger.info(
+                "ENTSO-e %s data restored for: %s.",
+                dataset_description,
+                self._format_area_names(resolved_missing),
+            )
 
-        if zero_only_areas:
+        if new_zero_only:
             self.logger.warning(
                 "ENTSO-e %s data returned zero-only values for: %s.",
                 dataset_description,
-                self._format_area_names(zero_only_areas),
+                self._format_area_names(new_zero_only),
+            )
+        if resolved_zero_only:
+            self.logger.info(
+                "ENTSO-e %s data no longer returns zero-only values for: %s.",
+                dataset_description,
+                self._format_area_names(resolved_zero_only),
             )
 
+        self._last_total_europe_issues[dataset_description] = (
+            frozenset(missing_set),
+            frozenset(zero_set),
+        )
+
+        fallback_required = bool(missing_set)
+        fallback_active = fallback_required and not has_fresh_data
+        previous_fallback = self._last_total_europe_fallback.get(
+            dataset_description, False
+        )
+
         if not fallback_required:
+            if previous_fallback or self._last_total_europe_no_data.get(dataset_description):
+                self.logger.info(
+                    "Resumed live ENTSO-e %s data for Europe.",
+                    dataset_description,
+                )
+            self._last_total_europe_fallback[dataset_description] = False
+            self._last_total_europe_no_data[dataset_description] = False
             return None
 
-        if has_fresh_data:
+        if fallback_active:
+            if not previous_fallback and self.data:
+                self.logger.warning(
+                    "Retaining cached ENTSO-e %s data until full European coverage is restored.",
+                    dataset_description,
+                )
+            if not previous_fallback and not self.data:
+                if not self._last_total_europe_no_data.get(dataset_description):
+                    self.logger.warning(
+                        "ENTSO-e %s data is currently unavailable for all European areas. "
+                        "Sensors will report as unknown until ENTSO-e publishes this dataset again.",
+                        dataset_description,
+                    )
+                    self._last_total_europe_no_data[dataset_description] = True
+            self._last_total_europe_fallback[dataset_description] = True
+            if self.data:
+                self._last_total_europe_no_data[dataset_description] = False
+                return self._copy_data()
+            return {}
+
+        if previous_fallback:
+            self.logger.info(
+                "Resumed live ENTSO-e %s data for Europe.",
+                dataset_description,
+            )
+        elif new_missing:
             self.logger.debug(
                 "Continuing with partial ENTSO-e %s data for Europe due to missing areas.",
                 dataset_description,
             )
-            return None
 
-        if self.data:
-            self.logger.warning(
-                "Retaining cached ENTSO-e %s data until full European coverage is restored.",
-                dataset_description,
-            )
-            return self._copy_data()
-
-        raise UpdateFailed(
-            f"Incomplete ENTSO-e {dataset_description} data for Europe; see logs for details."
-        )
+        self._last_total_europe_fallback[dataset_description] = False
+        self._last_total_europe_no_data[dataset_description] = False
+        return None
 
     def _reference_time(self, reference: datetime | None = None) -> datetime:
         if reference is not None:
@@ -368,6 +431,41 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
             name=f"ENTSO-e load {horizon} coordinator",
             update_interval=interval,
         )
+        self._area_missing_counts: defaultdict[str, int] = defaultdict(int)
+        self._area_suppressed_until: dict[str, datetime] = {}
+        self._area_last_suppressed: dict[str, datetime | None] = {}
+        self._all_suppressed_logged = False
+        self._area_keys: tuple[str, ...] = tuple(
+            key for key in AREA_INFO if key != TOTAL_EUROPE_AREA
+        )
+        self._missing_threshold = (
+            3 if horizon == LOAD_FORECAST_HORIZON_DAY_AHEAD else 1
+        )
+
+    def _suppression_duration(self) -> timedelta:
+        if self.horizon == LOAD_FORECAST_HORIZON_DAY_AHEAD:
+            return timedelta(hours=6)
+        if self.horizon == LOAD_FORECAST_HORIZON_WEEK_AHEAD:
+            return timedelta(hours=12)
+        if self.horizon == LOAD_FORECAST_HORIZON_MONTH_AHEAD:
+            return timedelta(days=1)
+        return timedelta(days=3)
+
+    def _format_duration(self, duration: timedelta) -> str:
+        total_seconds = int(duration.total_seconds())
+        days, remainder = divmod(total_seconds, 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes = remainder // 60
+        parts: list[str] = []
+        if days:
+            parts.append(f"{days}d")
+        if hours:
+            parts.append(f"{hours}h")
+        if minutes and not days:
+            parts.append(f"{minutes}m")
+        if not parts:
+            parts.append("0m")
+        return " ".join(parts)
 
     async def _async_update_data(self) -> dict[datetime, float]:
         start = dt.now() - timedelta(days=1)
@@ -424,7 +522,7 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
                 return self._copy_data()
             raise UpdateFailed("Failed to retrieve ENTSO-e load data.") from exc
 
-        if response is not None:
+        if response:
             self.last_successful_update = dt.now()
         return response or {}
 
@@ -435,6 +533,10 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
         seen_codes: set[str] = set()
         missing_areas: set[str] = set()
         zero_only_areas: set[str] = set()
+        suppressed_this_run: list[str] = []
+        recovered_this_run: list[str] = []
+        now = dt.now()
+        suppression_duration = self._suppression_duration()
 
         for area_key, info in AREA_INFO.items():
             if area_key == TOTAL_EUROPE_AREA:
@@ -445,12 +547,31 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
                 continue
             seen_codes.add(code)
 
+            suppress_until = self._area_suppressed_until.get(area_key)
+            if suppress_until and suppress_until > now:
+                missing_areas.add(area_key)
+                continue
+            if suppress_until and suppress_until <= now:
+                del self._area_suppressed_until[area_key]
+
             response = self._client.query_total_load_forecast(
                 code, start, end, self.process_type
             )
             if not response:
                 missing_areas.add(area_key)
+                self._area_missing_counts[area_key] += 1
+                if self._area_missing_counts[area_key] >= self._missing_threshold:
+                    until = now + suppression_duration
+                    self._area_suppressed_until[area_key] = until
+                    self._area_last_suppressed[area_key] = now
+                    suppressed_this_run.append(area_key)
+                    self._area_missing_counts[area_key] = 0
                 continue
+
+            self._area_missing_counts[area_key] = 0
+            if self._area_last_suppressed.get(area_key) is not None:
+                recovered_this_run.append(area_key)
+                self._area_last_suppressed[area_key] = None
 
             has_non_zero = any(value for value in response.values())
             for timestamp, value in response.items():
@@ -458,6 +579,38 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
 
             if not has_non_zero:
                 zero_only_areas.add(area_key)
+
+        if suppressed_this_run:
+            self.logger.info(
+                "ENTSO-e load %s data unavailable for %s; retrying in %s.",
+                self.horizon.replace("_", " "),
+                self._format_area_names(suppressed_this_run),
+                self._format_duration(suppression_duration),
+            )
+
+        if recovered_this_run:
+            self.logger.info(
+                "ENTSO-e load %s data resumed for: %s.",
+                self.horizon.replace("_", " "),
+                self._format_area_names(recovered_this_run),
+            )
+
+        active_area_exists = any(
+            (area_key not in self._area_suppressed_until)
+            or (self._area_suppressed_until[area_key] <= now)
+            for area_key in self._area_keys
+        )
+        if not active_area_exists and self._area_suppressed_until:
+            next_retry = min(self._area_suppressed_until.values())
+            if not self._all_suppressed_logged:
+                self.logger.warning(
+                    "ENTSO-e load %s data currently unavailable for all configured European areas; next retry scheduled at %s.",
+                    self.horizon.replace("_", " "),
+                    next_retry.isoformat(),
+                )
+                self._all_suppressed_logged = True
+        else:
+            self._all_suppressed_logged = False
 
         return dict(aggregate), missing_areas, zero_only_areas
 

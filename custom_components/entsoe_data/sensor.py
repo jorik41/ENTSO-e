@@ -22,7 +22,6 @@ from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import utcnow
 
-from .api_client import PSR_CATEGORY_MAPPING
 from .const import (
     AREA_INFO,
     ATTRIBUTION,
@@ -49,11 +48,9 @@ LOAD_DEVICE_SUFFIX = "load"
 TOTAL_EUROPE_CONTEXT = "total_europe"
 GENERATION_EUROPE_DEVICE_SUFFIX = f"{TOTAL_EUROPE_CONTEXT}_{GENERATION_DEVICE_SUFFIX}"
 TOTAL_GENERATION_KEY = "total_generation"
-DEFAULT_GENERATION_CATEGORIES = sorted(set(PSR_CATEGORY_MAPPING.values()))
 GENERATION_FORECAST_DEVICE_SUFFIX = "generation_forecast"
 WIND_SOLAR_DEVICE_SUFFIX = "wind_solar_forecast"
 WIND_SOLAR_EUROPE_DEVICE_SUFFIX = f"{TOTAL_EUROPE_CONTEXT}_{WIND_SOLAR_DEVICE_SUFFIX}"
-DEFAULT_WIND_SOLAR_CATEGORIES = ["solar", "wind_offshore", "wind_onshore"]
 
 @dataclass
 class EntsoeGenerationEntityDescription(SensorEntityDescription):
@@ -101,8 +98,7 @@ def generation_sensor_descriptions(
 ) -> list[EntsoeGenerationEntityDescription]:
     """Create generation sensor descriptions for all categories."""
 
-    categories = set(DEFAULT_GENERATION_CATEGORIES)
-    categories.update(coordinator.categories())
+    categories = set(coordinator.categories())
     categories.add(TOTAL_GENERATION_KEY)
 
     descriptions: list[EntsoeGenerationEntityDescription] = []
@@ -341,8 +337,7 @@ def wind_solar_sensor_descriptions(
 ) -> list[EntsoeWindSolarEntityDescription]:
     """Construct wind and solar forecast sensor descriptions."""
 
-    categories = set(DEFAULT_WIND_SOLAR_CATEGORIES)
-    categories.update(coordinator.categories())
+    categories = set(coordinator.categories())
 
     descriptions: list[EntsoeWindSolarEntityDescription] = []
     for category in sorted(categories):
@@ -531,6 +526,8 @@ def _create_generation_sensors(
     area_name: str | None = None,
     descriptions: list[EntsoeGenerationEntityDescription] | None = None,
 ) -> list[RestoreSensor]:
+    if not coordinator.data and getattr(coordinator, "last_successful_update", None) is None:
+        return []
     area_key = config_entry.options.get(CONF_AREA)
     resolved_area_name = (
         area_name
@@ -558,6 +555,8 @@ def _create_load_sensors(
     area_name: str | None = None,
     descriptions: tuple[EntsoeLoadEntityDescription, ...] | None = None,
 ) -> list[RestoreSensor]:
+    if not coordinator.data and getattr(coordinator, "last_successful_update", None) is None:
+        return []
     area_key = config_entry.options.get(CONF_AREA)
     resolved_area_name = (
         area_name
@@ -587,6 +586,8 @@ def _create_generation_forecast_sensors(
         EntsoeGenerationForecastEntityDescription, ...
     ] | None = None,
 ) -> list[RestoreSensor]:
+    if not coordinator.data and getattr(coordinator, "last_successful_update", None) is None:
+        return []
     area_key = config_entry.options.get(CONF_AREA)
     resolved_area_name = (
         area_name
@@ -614,6 +615,8 @@ def _create_wind_solar_sensors(
     area_name: str | None = None,
     descriptions: list[EntsoeWindSolarEntityDescription] | None = None,
 ) -> list[RestoreSensor]:
+    if not coordinator.data and getattr(coordinator, "last_successful_update", None) is None:
+        return []
     area_key = config_entry.options.get(CONF_AREA)
     resolved_area_name = (
         area_name

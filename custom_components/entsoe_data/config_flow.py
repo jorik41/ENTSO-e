@@ -230,7 +230,7 @@ class EntsoeOptionFlowHandler(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialize the options flow handler."""
 
-        self.config_entry = config_entry
+        self._config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -239,7 +239,7 @@ class EntsoeOptionFlowHandler(OptionsFlow):
 
         errors: dict[str, str] = {}
 
-        defaults = _build_defaults(self.config_entry.options)
+        defaults = _build_defaults(self._config_entry.options)
 
         if user_input is not None:
             sensor_values = _extract_sensor_values(user_input, defaults)
