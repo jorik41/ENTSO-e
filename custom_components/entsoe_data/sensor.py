@@ -531,6 +531,8 @@ def _create_generation_sensors(
     area_name: str | None = None,
     descriptions: list[EntsoeGenerationEntityDescription] | None = None,
 ) -> list[RestoreSensor]:
+    if not coordinator.data and getattr(coordinator, "last_successful_update", None) is None:
+        return []
     area_key = config_entry.options.get(CONF_AREA)
     resolved_area_name = (
         area_name
@@ -558,6 +560,8 @@ def _create_load_sensors(
     area_name: str | None = None,
     descriptions: tuple[EntsoeLoadEntityDescription, ...] | None = None,
 ) -> list[RestoreSensor]:
+    if not coordinator.data and getattr(coordinator, "last_successful_update", None) is None:
+        return []
     area_key = config_entry.options.get(CONF_AREA)
     resolved_area_name = (
         area_name
@@ -587,6 +591,8 @@ def _create_generation_forecast_sensors(
         EntsoeGenerationForecastEntityDescription, ...
     ] | None = None,
 ) -> list[RestoreSensor]:
+    if not coordinator.data and getattr(coordinator, "last_successful_update", None) is None:
+        return []
     area_key = config_entry.options.get(CONF_AREA)
     resolved_area_name = (
         area_name
@@ -614,6 +620,8 @@ def _create_wind_solar_sensors(
     area_name: str | None = None,
     descriptions: list[EntsoeWindSolarEntityDescription] | None = None,
 ) -> list[RestoreSensor]:
+    if not coordinator.data and getattr(coordinator, "last_successful_update", None) is None:
+        return []
     area_key = config_entry.options.get(CONF_AREA)
     resolved_area_name = (
         area_name

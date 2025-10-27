@@ -522,7 +522,7 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
                 return self._copy_data()
             raise UpdateFailed("Failed to retrieve ENTSO-e load data.") from exc
 
-        if response is not None:
+        if response:
             self.last_successful_update = dt.now()
         return response or {}
 
