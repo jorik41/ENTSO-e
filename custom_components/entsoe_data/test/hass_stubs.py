@@ -328,8 +328,24 @@ def install_hass_stubs() -> None:
     class RequestException(Exception):
         """Base requests exception used by the integration."""
 
+    class ConnectionError(RequestException):
+        """Connection error for requests."""
+
+    class Timeout(RequestException):
+        """Timeout exception for requests."""
+
+    class ReadTimeout(Timeout):
+        """Read timeout exception for requests."""
+
+    class ConnectTimeout(Timeout):
+        """Connection timeout exception for requests."""
+
     exceptions.HTTPError = HTTPError
     exceptions.RequestException = RequestException
+    exceptions.ConnectionError = ConnectionError
+    exceptions.Timeout = Timeout
+    exceptions.ReadTimeout = ReadTimeout
+    exceptions.ConnectTimeout = ConnectTimeout
     requests.exceptions = exceptions
 
     class Session:  # pragma: no cover - stub
