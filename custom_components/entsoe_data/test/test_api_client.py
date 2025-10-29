@@ -49,20 +49,20 @@ class TestDocumentParsing(unittest.TestCase):
     @patch("custom_components.entsoe_data.api_client.requests.Session")
     def test_base_request_retries_on_connection_error(self, session_cls):
         session = session_cls.return_value
-        
+
         # Simulate a ConnectionError (which includes RemoteDisconnected)
         connection_error = requests.exceptions.ConnectionError("Remote end closed connection without response")
-        
+
         response_ok = MagicMock()
         response_ok.status_code = 200
         response_ok.raise_for_status.return_value = None
-        
+
         # First call raises ConnectionError, second succeeds
         session.get.side_effect = [connection_error, response_ok]
-        
+
         client = EntsoeClient("fake-key")
         result = client._base_request({}, datetime(2024, 10, 7), datetime(2024, 10, 8))
-        
+
         self.assertIs(result, response_ok)
         self.assertEqual(session.get.call_count, 2)
         self.assertEqual(session.get.call_args_list[0][1]["url"], BASE_URLS[0])
