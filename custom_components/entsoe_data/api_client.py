@@ -3,6 +3,7 @@ from __future__ import annotations
 import enum
 import io
 import logging
+import time
 import zipfile
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -22,6 +23,8 @@ BASE_URLS: tuple[str, ...] = (
 )
 REQUEST_TIMEOUT = 30
 DATETIMEFORMAT = "%Y%m%d%H00"
+# Delay between consecutive API requests to avoid rate limiting (in seconds)
+REQUEST_DELAY = 0.5
 
 DOCUMENT_TYPE_GENERATION_PER_TYPE = "A75"
 DOCUMENT_TYPE_GENERATION_FORECAST = "A71"
@@ -74,6 +77,7 @@ class EntsoeClient:
             raise TypeError("API key cannot be empty")
         self.api_key = api_key
         self._session: requests.Session = requests.Session()
+        self._last_request_time: float | None = None
         retry = Retry(
             total=3,
             connect=3,
@@ -87,6 +91,14 @@ class EntsoeClient:
         adapter = HTTPAdapter(max_retries=retry)
         self._session.mount("https://", adapter)
         self._session.mount("http://", adapter)
+    
+    def _apply_rate_limit(self) -> None:
+        """Apply rate limiting between requests to avoid overwhelming the API."""
+        if self._last_request_time is not None:
+            elapsed = time.time() - self._last_request_time
+            if elapsed < REQUEST_DELAY:
+                time.sleep(REQUEST_DELAY - elapsed)
+        self._last_request_time = time.time()
 
     def _base_request(
         self, params: Dict, start: datetime, end: datetime
@@ -98,6 +110,9 @@ class EntsoeClient:
             "periodEnd": end.strftime(DATETIMEFORMAT),
         }
         params.update(base_params)
+
+        # Apply rate limiting before making the request
+        self._apply_rate_limit()
 
         last_error: Exception | None = None
 

@@ -356,20 +356,29 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
                 continue
             seen_codes.add(code)
 
-            response = self._client.query_generation_per_type(code, start, end)
-            if not response:
+            try:
+                response = self._client.query_generation_per_type(code, start, end)
+                if not response:
+                    missing_areas.add(area_key)
+                    continue
+
+                has_non_zero = False
+                for timestamp, values in response.items():
+                    for category, value in values.items():
+                        aggregate[timestamp][category] += value
+                        if value:
+                            has_non_zero = True
+
+                if not has_non_zero:
+                    zero_only_areas.add(area_key)
+            except requests_exceptions.RequestException as exc:
+                self.logger.debug(
+                    "Failed to fetch ENTSO-e generation data for %s: %s. Skipping this area.",
+                    area_key,
+                    exc,
+                )
                 missing_areas.add(area_key)
                 continue
-
-            has_non_zero = False
-            for timestamp, values in response.items():
-                for category, value in values.items():
-                    aggregate[timestamp][category] += value
-                    if value:
-                        has_non_zero = True
-
-            if not has_non_zero:
-                zero_only_areas.add(area_key)
 
         aggregated = {
             timestamp: dict(values) for timestamp, values in aggregate.items()
@@ -554,10 +563,38 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
             if suppress_until and suppress_until <= now:
                 del self._area_suppressed_until[area_key]
 
-            response = self._client.query_total_load_forecast(
-                code, start, end, self.process_type
-            )
-            if not response:
+            try:
+                response = self._client.query_total_load_forecast(
+                    code, start, end, self.process_type
+                )
+                if not response:
+                    missing_areas.add(area_key)
+                    self._area_missing_counts[area_key] += 1
+                    if self._area_missing_counts[area_key] >= self._missing_threshold:
+                        until = now + suppression_duration
+                        self._area_suppressed_until[area_key] = until
+                        self._area_last_suppressed[area_key] = now
+                        suppressed_this_run.append(area_key)
+                        self._area_missing_counts[area_key] = 0
+                    continue
+
+                self._area_missing_counts[area_key] = 0
+                if self._area_last_suppressed.get(area_key) is not None:
+                    recovered_this_run.append(area_key)
+                    self._area_last_suppressed[area_key] = None
+
+                has_non_zero = any(value for value in response.values())
+                for timestamp, value in response.items():
+                    aggregate[timestamp] += value
+
+                if not has_non_zero:
+                    zero_only_areas.add(area_key)
+            except requests_exceptions.RequestException as exc:
+                self.logger.debug(
+                    "Failed to fetch ENTSO-e load data for %s: %s. Skipping this area.",
+                    area_key,
+                    exc,
+                )
                 missing_areas.add(area_key)
                 self._area_missing_counts[area_key] += 1
                 if self._area_missing_counts[area_key] >= self._missing_threshold:
@@ -567,18 +604,6 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
                     suppressed_this_run.append(area_key)
                     self._area_missing_counts[area_key] = 0
                 continue
-
-            self._area_missing_counts[area_key] = 0
-            if self._area_last_suppressed.get(area_key) is not None:
-                recovered_this_run.append(area_key)
-                self._area_last_suppressed[area_key] = None
-
-            has_non_zero = any(value for value in response.values())
-            for timestamp, value in response.items():
-                aggregate[timestamp] += value
-
-            if not has_non_zero:
-                zero_only_areas.add(area_key)
 
         if suppressed_this_run:
             self.logger.info(
@@ -896,20 +921,29 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
                 continue
             seen_codes.add(code)
 
-            response = self._client.query_wind_solar_forecast(code, start, end)
-            if not response:
+            try:
+                response = self._client.query_wind_solar_forecast(code, start, end)
+                if not response:
+                    missing_areas.add(area_key)
+                    continue
+
+                has_non_zero = False
+                for timestamp, values in response.items():
+                    for category, value in values.items():
+                        aggregate[timestamp][category] += value
+                        if value:
+                            has_non_zero = True
+
+                if not has_non_zero:
+                    zero_only_areas.add(area_key)
+            except requests_exceptions.RequestException as exc:
+                self.logger.debug(
+                    "Failed to fetch ENTSO-e wind and solar forecast data for %s: %s. Skipping this area.",
+                    area_key,
+                    exc,
+                )
                 missing_areas.add(area_key)
                 continue
-
-            has_non_zero = False
-            for timestamp, values in response.items():
-                for category, value in values.items():
-                    aggregate[timestamp][category] += value
-                    if value:
-                        has_non_zero = True
-
-            if not has_non_zero:
-                zero_only_areas.add(area_key)
 
         aggregated = {
             timestamp: dict(values) for timestamp, values in aggregate.items()
