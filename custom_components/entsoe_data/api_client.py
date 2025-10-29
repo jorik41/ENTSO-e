@@ -80,7 +80,8 @@ class EntsoeClient:
             read=3,
             status=3,
             status_forcelist=(500, 502, 503, 504),
-            backoff_factor=0.5,
+            backoff_factor=1.0,
+            allowed_methods=["GET", "HEAD", "OPTIONS"],
             raise_on_status=False,
         )
         adapter = HTTPAdapter(max_retries=retry)
