@@ -107,6 +107,38 @@ class TestDocumentParsing(unittest.TestCase):
         self.assertIs(ctx.exception.response, response_503)
         self.assertEqual(session.get.call_count, len(BASE_URLS))
 
+    @patch("custom_components.entsoe_data.api_client.time.sleep")
+    @patch("custom_components.entsoe_data.api_client.time.time")
+    @patch("custom_components.entsoe_data.api_client.requests.Session")
+    def test_rate_limiting_applies_delay(self, session_cls, time_mock, sleep_mock):
+        """Test that rate limiting applies a delay between consecutive requests."""
+        session = session_cls.return_value
+        response_ok = MagicMock()
+        response_ok.status_code = 200
+        response_ok.raise_for_status.return_value = None
+        session.get.return_value = response_ok
+
+        # Simulate time progression: 
+        # First request starts, sets _last_request_time to 0.0
+        # Second request checks elapsed time, gets 0.1, needs to sleep
+        # After sleep, sets _last_request_time
+        time_values = [0.0, 0.1, 0.6]
+        time_mock.side_effect = time_values
+
+        client = EntsoeClient("fake-key")
+        
+        # First request - no delay expected
+        client._base_request({}, datetime(2024, 10, 7), datetime(2024, 10, 8))
+        sleep_mock.assert_not_called()
+        
+        # Second request - delay expected since only 0.1 seconds elapsed
+        client._base_request({}, datetime(2024, 10, 7), datetime(2024, 10, 8))
+        sleep_mock.assert_called_once()
+        # The delay should be REQUEST_DELAY (0.5) - elapsed time (0.1) = 0.4
+        called_delay = sleep_mock.call_args[0][0]
+        self.assertGreater(called_delay, 0.39)
+        self.assertLess(called_delay, 0.51)
+
     def test_query_total_load_forecast_handles_zip_payload(self):
         xml_doc = """
         <?xml version="1.0" encoding="UTF-8"?>
