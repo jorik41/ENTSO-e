@@ -1,8 +1,8 @@
 # ENTSO-E Transparency Platform Release R3.17.0.1 Compatibility Analysis
 
-**Date**: October 30, 2025  
+**Analysis Date**: October 2024  
 **Integration Version**: ENTSO-e Data for Home Assistant  
-**Platform Release**: R3.17.0.1
+**Platform Release**: R3.17.0.1 (Scheduled: October 30, 2025)
 
 ## Executive Summary
 
@@ -123,5 +123,8 @@ The ENTSO-e Data for Home Assistant integration is fully prepared for ENTSO-E Tr
 
 - [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/)
 - Platform Release: R3.17.0.1
-- Deployment Date: October 30, 2025, 15:00 CEST
+
+### Platform Deployment Information (Temporary)
+> **Note**: The following deployment details are specific to the October 2025 release and can be removed after completion.
+- Scheduled Deployment: October 30, 2025, 15:00 CEST
 - Expected Downtime: Up to 180 minutes
