@@ -203,6 +203,205 @@ class TestDocumentParsing(unittest.TestCase):
 
         self.assertDictEqual(result, expected)
 
+    def test_query_total_load_forecast_handles_zip_without_content_type(self):
+        """Test that ZIP files are detected even when Content-Type header is missing.
+        
+        This ensures compatibility with ENTSO-E platform changes where responses
+        may be returned as ZIP without proper Content-Type headers.
+        """
+        xml_doc = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <GL_MarketDocument>
+          <TimeSeries>
+            <Period>
+              <timeInterval>
+                <start>2024-10-01T00:00Z</start>
+                <end>2024-10-01T01:00Z</end>
+              </timeInterval>
+              <resolution>PT60M</resolution>
+              <Point>
+                <position>1</position>
+                <quantity>1500</quantity>
+              </Point>
+            </Period>
+          </TimeSeries>
+        </GL_MarketDocument>
+        """.strip()
+
+        payload = self._zip_documents(xml_doc)
+
+        response = MagicMock()
+        response.status_code = 200
+        response.headers = {}  # No Content-Type header
+        response.content = payload
+
+        with patch.object(self.client, "_base_request", return_value=response):
+            result = self.client.query_total_load_forecast(
+                "BE",
+                datetime(2024, 10, 1),
+                datetime(2024, 10, 2),
+            )
+
+        expected = {
+            self.client._parse_timestamp("2024-10-01T00:00Z"): 1500.0,
+        }
+
+        self.assertDictEqual(result, expected)
+
+    def test_query_generation_per_type_handles_zip_payload(self):
+        """Test that generation per type queries handle ZIP responses correctly.
+        
+        ENTSO-E platform changes may result in more endpoints returning ZIP format.
+        """
+        xml_doc = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <GL_MarketDocument>
+          <TimeSeries>
+            <MktPSRType>
+              <psrType>B16</psrType>
+            </MktPSRType>
+            <Period>
+              <timeInterval>
+                <start>2024-10-01T00:00Z</start>
+                <end>2024-10-01T01:00Z</end>
+              </timeInterval>
+              <resolution>PT60M</resolution>
+              <Point>
+                <position>1</position>
+                <quantity>500</quantity>
+              </Point>
+            </Period>
+          </TimeSeries>
+        </GL_MarketDocument>
+        """.strip()
+
+        second_doc = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <GL_MarketDocument>
+          <TimeSeries>
+            <MktPSRType>
+              <psrType>B19</psrType>
+            </MktPSRType>
+            <Period>
+              <timeInterval>
+                <start>2024-10-01T00:00Z</start>
+                <end>2024-10-01T01:00Z</end>
+              </timeInterval>
+              <resolution>PT60M</resolution>
+              <Point>
+                <position>1</position>
+                <quantity>300</quantity>
+              </Point>
+            </Period>
+          </TimeSeries>
+        </GL_MarketDocument>
+        """.strip()
+
+        payload = self._zip_documents(xml_doc, second_doc)
+
+        response = MagicMock()
+        response.status_code = 200
+        response.headers = {"Content-Type": "application/zip"}
+        response.content = payload
+
+        with patch.object(self.client, "_base_request", return_value=response):
+            result = self.client.query_generation_per_type(
+                "BE",
+                datetime(2024, 10, 1),
+                datetime(2024, 10, 2),
+            )
+
+        timestamp = self.client._parse_timestamp("2024-10-01T00:00Z")
+        self.assertIn(timestamp, result)
+        self.assertIn("solar", result[timestamp])
+        self.assertIn("wind_onshore", result[timestamp])
+        self.assertEqual(result[timestamp]["solar"], 500.0)
+        self.assertEqual(result[timestamp]["wind_onshore"], 300.0)
+
+    def test_query_generation_forecast_handles_zip_payload(self):
+        """Test that generation forecast queries handle ZIP responses correctly."""
+        xml_doc = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <GL_MarketDocument>
+          <TimeSeries>
+            <Period>
+              <timeInterval>
+                <start>2024-10-01T00:00Z</start>
+                <end>2024-10-01T01:00Z</end>
+              </timeInterval>
+              <resolution>PT60M</resolution>
+              <Point>
+                <position>1</position>
+                <quantity>2000</quantity>
+              </Point>
+            </Period>
+          </TimeSeries>
+        </GL_MarketDocument>
+        """.strip()
+
+        payload = self._zip_documents(xml_doc)
+
+        response = MagicMock()
+        response.status_code = 200
+        response.headers = {}  # Test without Content-Type
+        response.content = payload
+
+        with patch.object(self.client, "_base_request", return_value=response):
+            result = self.client.query_generation_forecast(
+                "BE",
+                datetime(2024, 10, 1),
+                datetime(2024, 10, 2),
+            )
+
+        expected = {
+            self.client._parse_timestamp("2024-10-01T00:00Z"): 2000.0,
+        }
+
+        self.assertDictEqual(result, expected)
+
+    def test_query_wind_solar_forecast_handles_zip_payload(self):
+        """Test that wind/solar forecast queries handle ZIP responses correctly."""
+        xml_doc = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <GL_MarketDocument>
+          <TimeSeries>
+            <MktPSRType>
+              <psrType>B16</psrType>
+            </MktPSRType>
+            <Period>
+              <timeInterval>
+                <start>2024-10-01T00:00Z</start>
+                <end>2024-10-01T01:00Z</end>
+              </timeInterval>
+              <resolution>PT60M</resolution>
+              <Point>
+                <position>1</position>
+                <quantity>800</quantity>
+              </Point>
+            </Period>
+          </TimeSeries>
+        </GL_MarketDocument>
+        """.strip()
+
+        payload = self._zip_documents(xml_doc)
+
+        response = MagicMock()
+        response.status_code = 200
+        response.headers = {"Content-Type": "application/zip"}
+        response.content = payload
+
+        with patch.object(self.client, "_base_request", return_value=response):
+            result = self.client.query_wind_solar_forecast(
+                "BE",
+                datetime(2024, 10, 1),
+                datetime(2024, 10, 2),
+            )
+
+        timestamp = self.client._parse_timestamp("2024-10-01T00:00Z")
+        self.assertIn(timestamp, result)
+        self.assertIn("solar", result[timestamp])
+        self.assertEqual(result[timestamp]["solar"], 800.0)
+
     def test_be_60m(self):
         with open(DATASET_DIR / "BE_60M.xml") as f:
             data = f.read()
