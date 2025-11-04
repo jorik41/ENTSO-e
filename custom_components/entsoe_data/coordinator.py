@@ -790,6 +790,15 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
             for timestamp, value in sorted(self._area_data[area_key].items())
         }
 
+    def get_all_area_timelines(self) -> dict[str, dict[str, float]]:
+        """Get timelines for all areas."""
+        result: dict[str, dict[str, float]] = {}
+        for area_key in self._area_data:
+            timeline = self.get_area_timeline(area_key)
+            if timeline:
+                result[area_key] = timeline
+        return result
+
 
 class EntsoeGenerationForecastCoordinator(EntsoeBaseCoordinator):
     """Coordinator handling generation forecast queries."""
