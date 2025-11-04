@@ -232,9 +232,12 @@ class EntsoeBaseCoordinator(DataUpdateCoordinator[dict]):
         for timestamp in reversed(self._sorted_timestamps()):
             if timestamp <= ref:
                 return timestamp
+        # If no timestamp <= ref found (all timestamps are in the future),
+        # return the nearest future timestamp (first in sorted list)
+        # This is useful for forecast data where all values are future-dated
         timestamps = self._sorted_timestamps()
         if timestamps:
-            return timestamps[-1]
+            return timestamps[0]
         return None
 
     def _select_next_timestamp(self, reference: datetime | None = None) -> datetime | None:
