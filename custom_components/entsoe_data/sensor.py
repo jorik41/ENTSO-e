@@ -219,7 +219,7 @@ def generation_per_area_descriptions(
                     category=category,
                     value_fn=lambda coord, ak=area_key, cat=category: coord.get_area_current_value(ak, cat),
                     attrs_fn=lambda coord, ak=area_key, cat=category: _generation_per_area_attrs(coord, ak, cat),
-                    device_suffix=f"{GENERATION_EUROPE_DEVICE_SUFFIX}_{area_key.lower()}",
+                    device_suffix=f"{GENERATION_EUROPE_DEVICE_SUFFIX}_per_area",
                 )
             )
     
@@ -498,7 +498,7 @@ def load_per_area_descriptions(
                 icon="mdi:transmission-tower",
                 value_fn=lambda coord, ak=area_key: coord.get_area_current_value(ak),
                 attrs_fn=lambda coord, ak=area_key: _load_per_area_attrs(coord, ak),
-                device_suffix=f"{config.europe_device_suffix}_{area_key.lower()}",
+                device_suffix=f"{config.europe_device_suffix}_per_area",
             )
         )
     
@@ -583,7 +583,7 @@ def wind_solar_per_area_descriptions(
                     category=category,
                     value_fn=lambda coord, ak=area_key, cat=category: coord.get_area_current_value(ak, cat),
                     attrs_fn=lambda coord, ak=area_key, cat=category: _wind_solar_per_area_attrs(coord, ak, cat),
-                    device_suffix=f"{WIND_SOLAR_EUROPE_DEVICE_SUFFIX}_{area_key.lower()}",
+                    device_suffix=f"{WIND_SOLAR_EUROPE_DEVICE_SUFFIX}_per_area",
                 )
             )
     
