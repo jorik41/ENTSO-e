@@ -458,6 +458,62 @@ def _load_attrs(
         attrs["current_timestamp"] = current_ts.isoformat()
     if next_ts:
         attrs["next_timestamp"] = next_ts.isoformat()
+    # Add per-area timelines for Total Europe sensors
+    if coordinator.area_key == TOTAL_EUROPE_AREA:
+        area_timelines = coordinator.get_all_area_timelines()
+        if area_timelines:
+            attrs["area_timelines"] = area_timelines
+    return attrs
+
+
+def load_per_area_descriptions(
+    coordinator: EntsoeLoadCoordinator,
+    horizon: str = LOAD_FORECAST_HORIZON_DAY_AHEAD,
+) -> list[EntsoeLoadEntityDescription]:
+    """Create load forecast sensor descriptions for each individual area in Total Europe."""
+    
+    descriptions: list[EntsoeLoadEntityDescription] = []
+    area_keys = coordinator.get_area_keys()
+    
+    if not area_keys:
+        return descriptions
+    
+    config = LOAD_FORECAST_HORIZON_MAP[horizon]
+    
+    for area_key in area_keys:
+        area_name = AREA_INFO.get(area_key, {}).get("name", area_key)
+        
+        # Create current load sensor for this area
+        key = f"{TOTAL_EUROPE_CONTEXT}_{area_key.lower()}_{config.sensor_key_prefix}_current"
+        name = f"{area_name} current load forecast"
+        if config.sensor_name_suffix:
+            name = f"{name} ({config.sensor_name_suffix})"
+        
+        descriptions.append(
+            EntsoeLoadEntityDescription(
+                key=key,
+                name=name,
+                native_unit_of_measurement=LOAD_UNIT,
+                state_class=SensorStateClass.MEASUREMENT,
+                icon="mdi:transmission-tower",
+                value_fn=lambda coord, ak=area_key: coord.get_area_current_value(ak),
+                attrs_fn=lambda coord, ak=area_key: _load_per_area_attrs(coord, ak),
+                device_suffix=f"{config.europe_device_suffix}_{area_key.lower()}",
+            )
+        )
+    
+    return descriptions
+
+
+def _load_per_area_attrs(
+    coordinator: EntsoeLoadCoordinator, area_key: str
+) -> dict[str, Any]:
+    """Generate attributes for per-area load forecast sensors."""
+    attrs: dict[str, Any] = {
+        "timeline": coordinator.get_area_timeline(area_key),
+        "area": area_key,
+        "area_name": AREA_INFO.get(area_key, {}).get("name", area_key),
+    }
     return attrs
 
 
@@ -608,6 +664,17 @@ async def async_setup_entry(
                     europe_load_coordinator,
                     area_name=europe_area_name,
                     descriptions=load_total_europe_descriptions(horizon.horizon),
+                )
+            )
+            # Add per-area sensors for Total Europe
+            entities.extend(
+                _create_load_sensors(
+                    config_entry,
+                    europe_load_coordinator,
+                    area_name=europe_area_name,
+                    descriptions=load_per_area_descriptions(
+                        europe_load_coordinator, horizon.horizon
+                    ),
                 )
             )
 
