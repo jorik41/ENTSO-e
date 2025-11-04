@@ -24,9 +24,10 @@ BASE_URLS: tuple[str, ...] = (
 REQUEST_TIMEOUT = 30
 DATETIMEFORMAT = "%Y%m%d%H00"
 # Delay between consecutive API requests to avoid rate limiting (in seconds)
-# Increased to 1.5s to spread out API calls and prevent burst behavior,
-# especially important when querying Total Europe (which makes many sequential calls)
-REQUEST_DELAY = 1.5
+# Set to 5s to significantly spread out API calls and prevent rate limiting.
+# For Total Europe queries with ~40 areas, this means ~3.3 minutes total,
+# which is acceptable since data doesn't update every minute.
+REQUEST_DELAY = 5.0
 
 DOCUMENT_TYPE_GENERATION_PER_TYPE = "A75"
 DOCUMENT_TYPE_GENERATION_FORECAST = "A71"
