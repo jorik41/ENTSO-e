@@ -69,6 +69,38 @@ class TestDocumentParsing(unittest.TestCase):
         self.assertEqual(session.get.call_args_list[1][1]["url"], BASE_URLS[1])
 
     @patch("custom_components.entsoe_data.api_client.requests.Session")
+    def test_base_request_handles_remote_disconnected(self, session_cls):
+        """Test that RemoteDisconnected errors are properly handled.
+        
+        This simulates the exact error seen in production where the ENTSO-e
+        server closes the connection without response, triggering a
+        RemoteDisconnected exception wrapped in ConnectionError.
+        """
+        from http.client import RemoteDisconnected
+        
+        session = session_cls.return_value
+        
+        # Simulate RemoteDisconnected wrapped in ConnectionError (as requests does)
+        remote_disc_error = requests.exceptions.ConnectionError(
+            RemoteDisconnected("Remote end closed connection without response")
+        )
+        
+        response_ok = MagicMock()
+        response_ok.status_code = 200
+        response_ok.raise_for_status.return_value = None
+        
+        # First endpoint fails with RemoteDisconnected, second succeeds
+        session.get.side_effect = [remote_disc_error, response_ok]
+        
+        client = EntsoeClient("fake-key")
+        result = client._base_request({}, datetime(2024, 11, 3), datetime(2024, 11, 6))
+        
+        self.assertIs(result, response_ok)
+        self.assertEqual(session.get.call_count, 2)
+        self.assertEqual(session.get.call_args_list[0][1]["url"], BASE_URLS[0])
+        self.assertEqual(session.get.call_args_list[1][1]["url"], BASE_URLS[1])
+
+    @patch("custom_components.entsoe_data.api_client.requests.Session")
     def test_base_request_retries_on_server_error(self, session_cls):
         session = session_cls.return_value
         response_503 = MagicMock()
