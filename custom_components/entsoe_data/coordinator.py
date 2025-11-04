@@ -312,8 +312,15 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
                     end,
                 )
         except HTTPError as exc:  # pragma: no cover - matching behaviour of base coordinator
-            if exc.response.status_code == 401:
+            status_code = getattr(exc.response, "status_code", None)
+            if status_code == 401:
                 raise UpdateFailed("Unauthorized: Please check your API-key.") from exc
+            if status_code == 400:
+                self.logger.warning(
+                    "ENTSO-e generation data unavailable for area %s (HTTP 400).",
+                    self.area,
+                )
+                return {}
             raise
         except requests_exceptions.RequestException as exc:
             if self.data:
@@ -1012,8 +1019,15 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
                     end,
                 )
         except HTTPError as exc:  # pragma: no cover - matching behaviour of base coordinator
-            if getattr(exc.response, "status_code", None) == 401:
+            status_code = getattr(exc.response, "status_code", None)
+            if status_code == 401:
                 raise UpdateFailed("Unauthorized: Please check your API-key.") from exc
+            if status_code == 400:
+                self.logger.warning(
+                    "ENTSO-e wind and solar forecast data unavailable for area %s (HTTP 400).",
+                    self.area,
+                )
+                return {}
             raise
         except requests_exceptions.RequestException as exc:
             if self.data:
