@@ -269,6 +269,13 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
             name="ENTSO-e generation coordinator",
             update_interval=timedelta(minutes=60),
         )
+        # Track failed areas for robust retry handling
+        self._area_missing_counts: defaultdict[str, int] = defaultdict(int)
+        self._area_suppressed_until: dict[str, datetime] = {}
+        self._area_last_suppressed: dict[str, datetime | None] = {}
+        self._missing_threshold = 3  # Number of failures before suppression
+        # Store per-area data for Total Europe queries
+        self._area_data: dict[str, dict[datetime, dict[str, float]]] = {}
 
     async def _async_update_data(self) -> dict[datetime, dict[str, float]]:
         start = dt.now() - timedelta(days=1)
@@ -346,6 +353,10 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
         seen_codes: set[str] = set()
         missing_areas: set[str] = set()
         zero_only_areas: set[str] = set()
+        suppressed_this_run: list[str] = []
+        recovered_this_run: list[str] = []
+        now = dt.now()
+        suppression_duration = timedelta(hours=6)  # Retry after 6 hours
 
         for area_key, info in AREA_INFO.items():
             if area_key == TOTAL_EUROPE_AREA:
@@ -356,11 +367,35 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
                 continue
             seen_codes.add(code)
 
+            # Check if area is currently suppressed (being retried later)
+            suppress_until = self._area_suppressed_until.get(area_key)
+            if suppress_until and suppress_until > now:
+                missing_areas.add(area_key)
+                continue
+            if suppress_until and suppress_until <= now:
+                del self._area_suppressed_until[area_key]
+
             try:
                 response = self._client.query_generation_per_type(code, start, end)
                 if not response:
                     missing_areas.add(area_key)
+                    self._area_missing_counts[area_key] += 1
+                    if self._area_missing_counts[area_key] >= self._missing_threshold:
+                        until = now + suppression_duration
+                        self._area_suppressed_until[area_key] = until
+                        self._area_last_suppressed[area_key] = now
+                        suppressed_this_run.append(area_key)
+                        self._area_missing_counts[area_key] = 0
                     continue
+
+                # Success - reset counters and track recovery
+                self._area_missing_counts[area_key] = 0
+                if self._area_last_suppressed.get(area_key) is not None:
+                    recovered_this_run.append(area_key)
+                    self._area_last_suppressed[area_key] = None
+
+                # Store per-area data for individual sensors
+                self._area_data[area_key] = response
 
                 has_non_zero = False
                 for timestamp, values in response.items():
@@ -378,7 +413,27 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
                     exc,
                 )
                 missing_areas.add(area_key)
+                self._area_missing_counts[area_key] += 1
+                if self._area_missing_counts[area_key] >= self._missing_threshold:
+                    until = now + suppression_duration
+                    self._area_suppressed_until[area_key] = until
+                    self._area_last_suppressed[area_key] = now
+                    suppressed_this_run.append(area_key)
+                    self._area_missing_counts[area_key] = 0
                 continue
+
+        # Log suppressed and recovered areas
+        if suppressed_this_run:
+            self.logger.info(
+                "ENTSO-e generation data unavailable for %s; retrying in 6h.",
+                self._format_area_names(suppressed_this_run),
+            )
+
+        if recovered_this_run:
+            self.logger.info(
+                "ENTSO-e generation data resumed for: %s.",
+                self._format_area_names(recovered_this_run),
+            )
 
         aggregated = {
             timestamp: dict(values) for timestamp, values in aggregate.items()
@@ -409,6 +464,39 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
                 continue
             timeline[timestamp.isoformat()] = float(values[category])
         return timeline
+
+    def get_area_keys(self) -> list[str]:
+        """Return list of areas with available data."""
+        return sorted(self._area_data.keys())
+
+    def get_area_current_value(self, area_key: str, category: str, reference: datetime | None = None) -> float | None:
+        """Get current value for a specific area and category."""
+        if area_key not in self._area_data:
+            return None
+        timestamp = self._select_current_timestamp(reference)
+        if timestamp is None:
+            return None
+        return self._area_data[area_key].get(timestamp, {}).get(category)
+
+    def get_area_timeline(self, area_key: str, category: str) -> dict[str, float]:
+        """Get timeline for a specific area and category."""
+        if area_key not in self._area_data:
+            return {}
+        timeline: dict[str, float] = {}
+        for timestamp, values in sorted(self._area_data[area_key].items()):
+            if category not in values:
+                continue
+            timeline[timestamp.isoformat()] = float(values[category])
+        return timeline
+
+    def get_all_area_timelines(self, category: str) -> dict[str, dict[str, float]]:
+        """Get timelines for all areas for a specific category."""
+        result: dict[str, dict[str, float]] = {}
+        for area_key in self._area_data:
+            timeline = self.get_area_timeline(area_key, category)
+            if timeline:
+                result[area_key] = timeline
+        return result
 
 
 class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
@@ -450,6 +538,8 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
         self._missing_threshold = (
             3 if horizon == LOAD_FORECAST_HORIZON_DAY_AHEAD else 1
         )
+        # Store per-area data for Total Europe queries
+        self._area_data: dict[str, dict[datetime, float]] = {}
 
     def _suppression_duration(self) -> timedelta:
         if self.horizon == LOAD_FORECAST_HORIZON_DAY_AHEAD:
@@ -582,6 +672,9 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
                 if self._area_last_suppressed.get(area_key) is not None:
                     recovered_this_run.append(area_key)
                     self._area_last_suppressed[area_key] = None
+
+                # Store per-area data for individual sensors
+                self._area_data[area_key] = response
 
                 has_non_zero = any(value for value in response.values())
                 for timestamp, value in response.items():
@@ -838,6 +931,13 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
             name="ENTSO-e wind and solar forecast coordinator",
             update_interval=timedelta(minutes=60),
         )
+        # Track failed areas for robust retry handling
+        self._area_missing_counts: defaultdict[str, int] = defaultdict(int)
+        self._area_suppressed_until: dict[str, datetime] = {}
+        self._area_last_suppressed: dict[str, datetime | None] = {}
+        self._missing_threshold = 3  # Number of failures before suppression
+        # Store per-area data for Total Europe queries
+        self._area_data: dict[str, dict[datetime, dict[str, float]]] = {}
 
     async def _async_update_data(self) -> dict[datetime, dict[str, float]]:
         start = dt.now() - timedelta(days=1)
@@ -911,6 +1011,10 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
         seen_codes: set[str] = set()
         missing_areas: set[str] = set()
         zero_only_areas: set[str] = set()
+        suppressed_this_run: list[str] = []
+        recovered_this_run: list[str] = []
+        now = dt.now()
+        suppression_duration = timedelta(hours=6)  # Retry after 6 hours
 
         for area_key, info in AREA_INFO.items():
             if area_key == TOTAL_EUROPE_AREA:
@@ -921,11 +1025,35 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
                 continue
             seen_codes.add(code)
 
+            # Check if area is currently suppressed (being retried later)
+            suppress_until = self._area_suppressed_until.get(area_key)
+            if suppress_until and suppress_until > now:
+                missing_areas.add(area_key)
+                continue
+            if suppress_until and suppress_until <= now:
+                del self._area_suppressed_until[area_key]
+
             try:
                 response = self._client.query_wind_solar_forecast(code, start, end)
                 if not response:
                     missing_areas.add(area_key)
+                    self._area_missing_counts[area_key] += 1
+                    if self._area_missing_counts[area_key] >= self._missing_threshold:
+                        until = now + suppression_duration
+                        self._area_suppressed_until[area_key] = until
+                        self._area_last_suppressed[area_key] = now
+                        suppressed_this_run.append(area_key)
+                        self._area_missing_counts[area_key] = 0
                     continue
+
+                # Success - reset counters and track recovery
+                self._area_missing_counts[area_key] = 0
+                if self._area_last_suppressed.get(area_key) is not None:
+                    recovered_this_run.append(area_key)
+                    self._area_last_suppressed[area_key] = None
+
+                # Store per-area data for individual sensors
+                self._area_data[area_key] = response
 
                 has_non_zero = False
                 for timestamp, values in response.items():
@@ -943,7 +1071,27 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
                     exc,
                 )
                 missing_areas.add(area_key)
+                self._area_missing_counts[area_key] += 1
+                if self._area_missing_counts[area_key] >= self._missing_threshold:
+                    until = now + suppression_duration
+                    self._area_suppressed_until[area_key] = until
+                    self._area_last_suppressed[area_key] = now
+                    suppressed_this_run.append(area_key)
+                    self._area_missing_counts[area_key] = 0
                 continue
+
+        # Log suppressed and recovered areas
+        if suppressed_this_run:
+            self.logger.info(
+                "ENTSO-e wind and solar forecast data unavailable for %s; retrying in 6h.",
+                self._format_area_names(suppressed_this_run),
+            )
+
+        if recovered_this_run:
+            self.logger.info(
+                "ENTSO-e wind and solar forecast data resumed for: %s.",
+                self._format_area_names(recovered_this_run),
+            )
 
         aggregated = {
             timestamp: dict(values) for timestamp, values in aggregate.items()
@@ -974,3 +1122,67 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
                 continue
             timeline[timestamp.isoformat()] = float(values[category])
         return timeline
+
+    def get_area_keys(self) -> list[str]:
+        """Return list of areas with available data."""
+        return sorted(self._area_data.keys())
+
+    def get_area_current_value(self, area_key: str, category: str, reference: datetime | None = None) -> float | None:
+        """Get current value for a specific area and category."""
+        if area_key not in self._area_data:
+            return None
+        timestamp = self._select_current_timestamp(reference)
+        if timestamp is None:
+            return None
+        return self._area_data[area_key].get(timestamp, {}).get(category)
+
+    def get_area_timeline(self, area_key: str, category: str) -> dict[str, float]:
+        """Get timeline for a specific area and category."""
+        if area_key not in self._area_data:
+            return {}
+        timeline: dict[str, float] = {}
+        for timestamp, values in sorted(self._area_data[area_key].items()):
+            if category not in values:
+                continue
+            timeline[timestamp.isoformat()] = float(values[category])
+        return timeline
+
+    def get_all_area_timelines(self, category: str) -> dict[str, dict[str, float]]:
+        """Get timelines for all areas for a specific category."""
+        result: dict[str, dict[str, float]] = {}
+        for area_key in self._area_data:
+            timeline = self.get_area_timeline(area_key, category)
+            if timeline:
+                result[area_key] = timeline
+        return result
+
+    def get_area_keys(self) -> list[str]:
+        """Return list of areas with available data."""
+        return sorted(self._area_data.keys())
+
+    def get_area_current_value(self, area_key: str, reference: datetime | None = None) -> float | None:
+        """Get current value for a specific area."""
+        if area_key not in self._area_data:
+            return None
+        timestamp = self._select_current_timestamp(reference)
+        if timestamp is None:
+            return None
+        return self._area_data[area_key].get(timestamp)
+
+    def get_area_timeline(self, area_key: str) -> dict[str, float]:
+        """Get timeline for a specific area."""
+        if area_key not in self._area_data:
+            return {}
+        return {
+            timestamp.isoformat(): float(value)
+            for timestamp, value in sorted(self._area_data[area_key].items())
+        }
+
+    def get_all_area_timelines(self) -> dict[str, dict[str, float]]:
+        """Get timelines for all areas."""
+        result: dict[str, dict[str, float]] = {}
+        for area_key in self._area_data:
+            timeline = self.get_area_timeline(area_key)
+            if timeline:
+                result[area_key] = timeline
+        return result

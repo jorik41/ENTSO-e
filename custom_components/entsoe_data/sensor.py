@@ -174,6 +174,67 @@ def _generation_attrs(
         attrs["current_timestamp"] = current_ts.isoformat()
     if next_ts:
         attrs["next_timestamp"] = next_ts.isoformat()
+    # Add per-area timelines for Total Europe sensors
+    if coordinator.area_key == TOTAL_EUROPE_AREA:
+        area_timelines = coordinator.get_all_area_timelines(category)
+        if area_timelines:
+            attrs["area_timelines"] = area_timelines
+    return attrs
+
+
+def generation_per_area_descriptions(
+    coordinator: EntsoeGenerationCoordinator,
+) -> list[EntsoeGenerationEntityDescription]:
+    """Create generation sensor descriptions for each individual area in Total Europe."""
+    
+    descriptions: list[EntsoeGenerationEntityDescription] = []
+    area_keys = coordinator.get_area_keys()
+    
+    if not area_keys:
+        return descriptions
+    
+    categories = set(coordinator.categories())
+    categories.add(TOTAL_GENERATION_KEY)
+    
+    for area_key in area_keys:
+        area_name = AREA_INFO.get(area_key, {}).get("name", area_key)
+        for category in sorted(categories):
+            cat_name = (
+                "Total generation"
+                if category == TOTAL_GENERATION_KEY
+                else _format_category_name(category)
+            )
+            key = (
+                f"{TOTAL_EUROPE_CONTEXT}_{area_key.lower()}_generation_total"
+                if category == TOTAL_GENERATION_KEY
+                else f"{TOTAL_EUROPE_CONTEXT}_{area_key.lower()}_generation_{category}"
+            )
+            descriptions.append(
+                EntsoeGenerationEntityDescription(
+                    key=key,
+                    name=f"{area_name} {cat_name.lower()} output",
+                    native_unit_of_measurement=GENERATION_UNIT,
+                    state_class=SensorStateClass.MEASUREMENT,
+                    icon="mdi:factory",
+                    category=category,
+                    value_fn=lambda coord, ak=area_key, cat=category: coord.get_area_current_value(ak, cat),
+                    attrs_fn=lambda coord, ak=area_key, cat=category: _generation_per_area_attrs(coord, ak, cat),
+                    device_suffix=f"{GENERATION_EUROPE_DEVICE_SUFFIX}_{area_key.lower()}",
+                )
+            )
+    
+    return descriptions
+
+
+def _generation_per_area_attrs(
+    coordinator: EntsoeGenerationCoordinator, area_key: str, category: str
+) -> dict[str, Any]:
+    """Generate attributes for per-area generation sensors."""
+    attrs: dict[str, Any] = {
+        "timeline": coordinator.get_area_timeline(area_key, category),
+        "area": area_key,
+        "area_name": AREA_INFO.get(area_key, {}).get("name", area_key),
+    }
     return attrs
 
 
@@ -397,6 +458,62 @@ def _load_attrs(
         attrs["current_timestamp"] = current_ts.isoformat()
     if next_ts:
         attrs["next_timestamp"] = next_ts.isoformat()
+    # Add per-area timelines for Total Europe sensors
+    if coordinator.area_key == TOTAL_EUROPE_AREA:
+        area_timelines = coordinator.get_all_area_timelines()
+        if area_timelines:
+            attrs["area_timelines"] = area_timelines
+    return attrs
+
+
+def load_per_area_descriptions(
+    coordinator: EntsoeLoadCoordinator,
+    horizon: str = LOAD_FORECAST_HORIZON_DAY_AHEAD,
+) -> list[EntsoeLoadEntityDescription]:
+    """Create load forecast sensor descriptions for each individual area in Total Europe."""
+    
+    descriptions: list[EntsoeLoadEntityDescription] = []
+    area_keys = coordinator.get_area_keys()
+    
+    if not area_keys:
+        return descriptions
+    
+    config = LOAD_FORECAST_HORIZON_MAP[horizon]
+    
+    for area_key in area_keys:
+        area_name = AREA_INFO.get(area_key, {}).get("name", area_key)
+        
+        # Create current load sensor for this area
+        key = f"{TOTAL_EUROPE_CONTEXT}_{area_key.lower()}_{config.sensor_key_prefix}_current"
+        name = f"{area_name} current load forecast"
+        if config.sensor_name_suffix:
+            name = f"{name} ({config.sensor_name_suffix})"
+        
+        descriptions.append(
+            EntsoeLoadEntityDescription(
+                key=key,
+                name=name,
+                native_unit_of_measurement=LOAD_UNIT,
+                state_class=SensorStateClass.MEASUREMENT,
+                icon="mdi:transmission-tower",
+                value_fn=lambda coord, ak=area_key: coord.get_area_current_value(ak),
+                attrs_fn=lambda coord, ak=area_key: _load_per_area_attrs(coord, ak),
+                device_suffix=f"{config.europe_device_suffix}_{area_key.lower()}",
+            )
+        )
+    
+    return descriptions
+
+
+def _load_per_area_attrs(
+    coordinator: EntsoeLoadCoordinator, area_key: str
+) -> dict[str, Any]:
+    """Generate attributes for per-area load forecast sensors."""
+    attrs: dict[str, Any] = {
+        "timeline": coordinator.get_area_timeline(area_key),
+        "area": area_key,
+        "area_name": AREA_INFO.get(area_key, {}).get("name", area_key),
+    }
     return attrs
 
 
@@ -430,6 +547,58 @@ def _wind_solar_attrs(
         attrs["current_timestamp"] = current_ts.isoformat()
     if next_ts:
         attrs["next_timestamp"] = next_ts.isoformat()
+    # Add per-area timelines for Total Europe sensors
+    if coordinator.area_key == TOTAL_EUROPE_AREA:
+        area_timelines = coordinator.get_all_area_timelines(category)
+        if area_timelines:
+            attrs["area_timelines"] = area_timelines
+    return attrs
+
+
+def wind_solar_per_area_descriptions(
+    coordinator: EntsoeWindSolarForecastCoordinator,
+) -> list[EntsoeWindSolarEntityDescription]:
+    """Create wind/solar forecast sensor descriptions for each individual area in Total Europe."""
+    
+    descriptions: list[EntsoeWindSolarEntityDescription] = []
+    area_keys = coordinator.get_area_keys()
+    
+    if not area_keys:
+        return descriptions
+    
+    categories = set(coordinator.categories())
+    
+    for area_key in area_keys:
+        area_name = AREA_INFO.get(area_key, {}).get("name", area_key)
+        for category in sorted(categories):
+            cat_name = _format_category_name(category)
+            key = f"{TOTAL_EUROPE_CONTEXT}_{area_key.lower()}_wind_solar_{category}"
+            descriptions.append(
+                EntsoeWindSolarEntityDescription(
+                    key=key,
+                    name=f"{area_name} {cat_name.lower()} forecast",
+                    native_unit_of_measurement=GENERATION_UNIT,
+                    state_class=SensorStateClass.MEASUREMENT,
+                    icon="mdi:weather-windy" if "wind" in category else "mdi:solar-power",
+                    category=category,
+                    value_fn=lambda coord, ak=area_key, cat=category: coord.get_area_current_value(ak, cat),
+                    attrs_fn=lambda coord, ak=area_key, cat=category: _wind_solar_per_area_attrs(coord, ak, cat),
+                    device_suffix=f"{WIND_SOLAR_EUROPE_DEVICE_SUFFIX}_{area_key.lower()}",
+                )
+            )
+    
+    return descriptions
+
+
+def _wind_solar_per_area_attrs(
+    coordinator: EntsoeWindSolarForecastCoordinator, area_key: str, category: str
+) -> dict[str, Any]:
+    """Generate attributes for per-area wind/solar forecast sensors."""
+    attrs: dict[str, Any] = {
+        "timeline": coordinator.get_area_timeline(area_key, category),
+        "area": area_key,
+        "area_name": AREA_INFO.get(area_key, {}).get("name", area_key),
+    }
     return attrs
 
 
@@ -463,6 +632,17 @@ async def async_setup_entry(
                 ),
             )
         )
+        # Add per-area sensors for Total Europe
+        entities.extend(
+            _create_generation_sensors(
+                config_entry,
+                generation_europe_coordinator,
+                area_name=AREA_INFO.get(TOTAL_EUROPE_AREA, {}).get("name", ""),
+                descriptions=generation_per_area_descriptions(
+                    generation_europe_coordinator
+                ),
+            )
+        )
 
     europe_area_name = AREA_INFO.get(TOTAL_EUROPE_AREA, {}).get("name", "")
 
@@ -484,6 +664,17 @@ async def async_setup_entry(
                     europe_load_coordinator,
                     area_name=europe_area_name,
                     descriptions=load_total_europe_descriptions(horizon.horizon),
+                )
+            )
+            # Add per-area sensors for Total Europe
+            entities.extend(
+                _create_load_sensors(
+                    config_entry,
+                    europe_load_coordinator,
+                    area_name=europe_area_name,
+                    descriptions=load_per_area_descriptions(
+                        europe_load_coordinator, horizon.horizon
+                    ),
                 )
             )
 
@@ -512,6 +703,17 @@ async def async_setup_entry(
                 wind_solar_forecast_europe_coordinator,
                 area_name=AREA_INFO.get(TOTAL_EUROPE_AREA, {}).get("name", ""),
                 descriptions=wind_solar_total_europe_descriptions(
+                    wind_solar_forecast_europe_coordinator
+                ),
+            )
+        )
+        # Add per-area sensors for Total Europe
+        entities.extend(
+            _create_wind_solar_sensors(
+                config_entry,
+                wind_solar_forecast_europe_coordinator,
+                area_name=AREA_INFO.get(TOTAL_EUROPE_AREA, {}).get("name", ""),
+                descriptions=wind_solar_per_area_descriptions(
                     wind_solar_forecast_europe_coordinator
                 ),
             )

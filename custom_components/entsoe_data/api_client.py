@@ -24,7 +24,10 @@ BASE_URLS: tuple[str, ...] = (
 REQUEST_TIMEOUT = 30
 DATETIMEFORMAT = "%Y%m%d%H00"
 # Delay between consecutive API requests to avoid rate limiting (in seconds)
-REQUEST_DELAY = 0.5
+# Set to 5s to significantly spread out API calls and prevent rate limiting.
+# For Total Europe queries with ~40 areas, this means ~3.3 minutes total,
+# which is acceptable since data doesn't update every minute.
+REQUEST_DELAY = 5.0
 
 DOCUMENT_TYPE_GENERATION_PER_TYPE = "A75"
 DOCUMENT_TYPE_GENERATION_FORECAST = "A71"
@@ -78,13 +81,15 @@ class EntsoeClient:
         self.api_key = api_key
         self._session: requests.Session = requests.Session()
         self._last_request_time: float | None = None
+        # Enhanced retry configuration to better handle connection errors
+        # like RemoteDisconnected that can occur when ENTSO-e servers close connections
         retry = Retry(
-            total=3,
-            connect=3,
-            read=3,
-            status=3,
+            total=5,  # Increased from 3 to handle more transient failures
+            connect=5,  # Connection-level retries for RemoteDisconnected errors
+            read=5,  # Read-level retries
+            status=5,  # Status-level retries
             status_forcelist=(500, 502, 503, 504),
-            backoff_factor=1.0,
+            backoff_factor=2.0,  # Increased from 1.0 for better spacing (2s, 4s, 8s, 16s, 32s)
             allowed_methods=["GET", "HEAD", "OPTIONS"],
             raise_on_status=False,
         )
@@ -135,6 +140,17 @@ class EntsoeClient:
                     last_error = exc
                     continue
                 raise
+            except requests_exceptions.ConnectionError as exc:
+                # Handle connection errors (includes RemoteDisconnected) separately
+                # with more informative logging
+                _LOGGER.warning(
+                    "Connection error when contacting %s: %s. "
+                    "The ENTSO-e server may have closed the connection. "
+                    "Trying next endpoint if available.",
+                    url, exc
+                )
+                last_error = exc
+                continue
             except requests_exceptions.RequestException as exc:  # includes timeouts
                 _LOGGER.warning("Error contacting %s: %s", url, exc)
                 last_error = exc
