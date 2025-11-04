@@ -274,6 +274,8 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
         self._area_suppressed_until: dict[str, datetime] = {}
         self._area_last_suppressed: dict[str, datetime | None] = {}
         self._missing_threshold = 3  # Number of failures before suppression
+        # Store per-area data for Total Europe queries
+        self._area_data: dict[str, dict[datetime, dict[str, float]]] = {}
 
     async def _async_update_data(self) -> dict[datetime, dict[str, float]]:
         start = dt.now() - timedelta(days=1)
@@ -392,6 +394,9 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
                     recovered_this_run.append(area_key)
                     self._area_last_suppressed[area_key] = None
 
+                # Store per-area data for individual sensors
+                self._area_data[area_key] = response
+
                 has_non_zero = False
                 for timestamp, values in response.items():
                     for category, value in values.items():
@@ -459,6 +464,39 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
                 continue
             timeline[timestamp.isoformat()] = float(values[category])
         return timeline
+
+    def get_area_keys(self) -> list[str]:
+        """Return list of areas with available data."""
+        return sorted(self._area_data.keys())
+
+    def get_area_current_value(self, area_key: str, category: str, reference: datetime | None = None) -> float | None:
+        """Get current value for a specific area and category."""
+        if area_key not in self._area_data:
+            return None
+        timestamp = self._select_current_timestamp(reference)
+        if timestamp is None:
+            return None
+        return self._area_data[area_key].get(timestamp, {}).get(category)
+
+    def get_area_timeline(self, area_key: str, category: str) -> dict[str, float]:
+        """Get timeline for a specific area and category."""
+        if area_key not in self._area_data:
+            return {}
+        timeline: dict[str, float] = {}
+        for timestamp, values in sorted(self._area_data[area_key].items()):
+            if category not in values:
+                continue
+            timeline[timestamp.isoformat()] = float(values[category])
+        return timeline
+
+    def get_all_area_timelines(self, category: str) -> dict[str, dict[str, float]]:
+        """Get timelines for all areas for a specific category."""
+        result: dict[str, dict[str, float]] = {}
+        for area_key in self._area_data:
+            timeline = self.get_area_timeline(area_key, category)
+            if timeline:
+                result[area_key] = timeline
+        return result
 
 
 class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
@@ -893,6 +931,8 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
         self._area_suppressed_until: dict[str, datetime] = {}
         self._area_last_suppressed: dict[str, datetime | None] = {}
         self._missing_threshold = 3  # Number of failures before suppression
+        # Store per-area data for Total Europe queries
+        self._area_data: dict[str, dict[datetime, dict[str, float]]] = {}
 
     async def _async_update_data(self) -> dict[datetime, dict[str, float]]:
         start = dt.now() - timedelta(days=1)
@@ -1007,6 +1047,9 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
                     recovered_this_run.append(area_key)
                     self._area_last_suppressed[area_key] = None
 
+                # Store per-area data for individual sensors
+                self._area_data[area_key] = response
+
                 has_non_zero = False
                 for timestamp, values in response.items():
                     for category, value in values.items():
@@ -1074,3 +1117,36 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
                 continue
             timeline[timestamp.isoformat()] = float(values[category])
         return timeline
+
+    def get_area_keys(self) -> list[str]:
+        """Return list of areas with available data."""
+        return sorted(self._area_data.keys())
+
+    def get_area_current_value(self, area_key: str, category: str, reference: datetime | None = None) -> float | None:
+        """Get current value for a specific area and category."""
+        if area_key not in self._area_data:
+            return None
+        timestamp = self._select_current_timestamp(reference)
+        if timestamp is None:
+            return None
+        return self._area_data[area_key].get(timestamp, {}).get(category)
+
+    def get_area_timeline(self, area_key: str, category: str) -> dict[str, float]:
+        """Get timeline for a specific area and category."""
+        if area_key not in self._area_data:
+            return {}
+        timeline: dict[str, float] = {}
+        for timestamp, values in sorted(self._area_data[area_key].items()):
+            if category not in values:
+                continue
+            timeline[timestamp.isoformat()] = float(values[category])
+        return timeline
+
+    def get_all_area_timelines(self, category: str) -> dict[str, dict[str, float]]:
+        """Get timelines for all areas for a specific category."""
+        result: dict[str, dict[str, float]] = {}
+        for area_key in self._area_data:
+            timeline = self.get_area_timeline(area_key, category)
+            if timeline:
+                result[area_key] = timeline
+        return result
