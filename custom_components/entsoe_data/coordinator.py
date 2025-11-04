@@ -768,6 +768,28 @@ class EntsoeLoadCoordinator(EntsoeBaseCoordinator):
             for timestamp, value in sorted(self.data.items())
         }
 
+    def get_area_keys(self) -> list[str]:
+        """Return list of areas with available data."""
+        return sorted(self._area_data.keys())
+
+    def get_area_current_value(self, area_key: str, reference: datetime | None = None) -> float | None:
+        """Get current value for a specific area."""
+        if area_key not in self._area_data:
+            return None
+        timestamp = self._select_current_timestamp(reference)
+        if timestamp is None:
+            return None
+        return self._area_data[area_key].get(timestamp)
+
+    def get_area_timeline(self, area_key: str) -> dict[str, float]:
+        """Get timeline for a specific area."""
+        if area_key not in self._area_data:
+            return {}
+        return {
+            timestamp.isoformat(): float(value)
+            for timestamp, value in sorted(self._area_data[area_key].items())
+        }
+
 
 class EntsoeGenerationForecastCoordinator(EntsoeBaseCoordinator):
     """Coordinator handling generation forecast queries."""
