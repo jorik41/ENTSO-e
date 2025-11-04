@@ -269,6 +269,11 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
             name="ENTSO-e generation coordinator",
             update_interval=timedelta(minutes=60),
         )
+        # Track failed areas for robust retry handling
+        self._area_missing_counts: defaultdict[str, int] = defaultdict(int)
+        self._area_suppressed_until: dict[str, datetime] = {}
+        self._area_last_suppressed: dict[str, datetime | None] = {}
+        self._missing_threshold = 3  # Number of failures before suppression
 
     async def _async_update_data(self) -> dict[datetime, dict[str, float]]:
         start = dt.now() - timedelta(days=1)
@@ -346,6 +351,10 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
         seen_codes: set[str] = set()
         missing_areas: set[str] = set()
         zero_only_areas: set[str] = set()
+        suppressed_this_run: list[str] = []
+        recovered_this_run: list[str] = []
+        now = dt.now()
+        suppression_duration = timedelta(hours=6)  # Retry after 6 hours
 
         for area_key, info in AREA_INFO.items():
             if area_key == TOTAL_EUROPE_AREA:
@@ -356,11 +365,32 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
                 continue
             seen_codes.add(code)
 
+            # Check if area is currently suppressed (being retried later)
+            suppress_until = self._area_suppressed_until.get(area_key)
+            if suppress_until and suppress_until > now:
+                missing_areas.add(area_key)
+                continue
+            if suppress_until and suppress_until <= now:
+                del self._area_suppressed_until[area_key]
+
             try:
                 response = self._client.query_generation_per_type(code, start, end)
                 if not response:
                     missing_areas.add(area_key)
+                    self._area_missing_counts[area_key] += 1
+                    if self._area_missing_counts[area_key] >= self._missing_threshold:
+                        until = now + suppression_duration
+                        self._area_suppressed_until[area_key] = until
+                        self._area_last_suppressed[area_key] = now
+                        suppressed_this_run.append(area_key)
+                        self._area_missing_counts[area_key] = 0
                     continue
+
+                # Success - reset counters and track recovery
+                self._area_missing_counts[area_key] = 0
+                if self._area_last_suppressed.get(area_key) is not None:
+                    recovered_this_run.append(area_key)
+                    self._area_last_suppressed[area_key] = None
 
                 has_non_zero = False
                 for timestamp, values in response.items():
@@ -378,7 +408,27 @@ class EntsoeGenerationCoordinator(EntsoeBaseCoordinator):
                     exc,
                 )
                 missing_areas.add(area_key)
+                self._area_missing_counts[area_key] += 1
+                if self._area_missing_counts[area_key] >= self._missing_threshold:
+                    until = now + suppression_duration
+                    self._area_suppressed_until[area_key] = until
+                    self._area_last_suppressed[area_key] = now
+                    suppressed_this_run.append(area_key)
+                    self._area_missing_counts[area_key] = 0
                 continue
+
+        # Log suppressed and recovered areas
+        if suppressed_this_run:
+            self.logger.info(
+                "ENTSO-e generation data unavailable for %s; retrying in 6h.",
+                self._format_area_names(suppressed_this_run),
+            )
+
+        if recovered_this_run:
+            self.logger.info(
+                "ENTSO-e generation data resumed for: %s.",
+                self._format_area_names(recovered_this_run),
+            )
 
         aggregated = {
             timestamp: dict(values) for timestamp, values in aggregate.items()
@@ -838,6 +888,11 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
             name="ENTSO-e wind and solar forecast coordinator",
             update_interval=timedelta(minutes=60),
         )
+        # Track failed areas for robust retry handling
+        self._area_missing_counts: defaultdict[str, int] = defaultdict(int)
+        self._area_suppressed_until: dict[str, datetime] = {}
+        self._area_last_suppressed: dict[str, datetime | None] = {}
+        self._missing_threshold = 3  # Number of failures before suppression
 
     async def _async_update_data(self) -> dict[datetime, dict[str, float]]:
         start = dt.now() - timedelta(days=1)
@@ -911,6 +966,10 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
         seen_codes: set[str] = set()
         missing_areas: set[str] = set()
         zero_only_areas: set[str] = set()
+        suppressed_this_run: list[str] = []
+        recovered_this_run: list[str] = []
+        now = dt.now()
+        suppression_duration = timedelta(hours=6)  # Retry after 6 hours
 
         for area_key, info in AREA_INFO.items():
             if area_key == TOTAL_EUROPE_AREA:
@@ -921,11 +980,32 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
                 continue
             seen_codes.add(code)
 
+            # Check if area is currently suppressed (being retried later)
+            suppress_until = self._area_suppressed_until.get(area_key)
+            if suppress_until and suppress_until > now:
+                missing_areas.add(area_key)
+                continue
+            if suppress_until and suppress_until <= now:
+                del self._area_suppressed_until[area_key]
+
             try:
                 response = self._client.query_wind_solar_forecast(code, start, end)
                 if not response:
                     missing_areas.add(area_key)
+                    self._area_missing_counts[area_key] += 1
+                    if self._area_missing_counts[area_key] >= self._missing_threshold:
+                        until = now + suppression_duration
+                        self._area_suppressed_until[area_key] = until
+                        self._area_last_suppressed[area_key] = now
+                        suppressed_this_run.append(area_key)
+                        self._area_missing_counts[area_key] = 0
                     continue
+
+                # Success - reset counters and track recovery
+                self._area_missing_counts[area_key] = 0
+                if self._area_last_suppressed.get(area_key) is not None:
+                    recovered_this_run.append(area_key)
+                    self._area_last_suppressed[area_key] = None
 
                 has_non_zero = False
                 for timestamp, values in response.items():
@@ -943,7 +1023,27 @@ class EntsoeWindSolarForecastCoordinator(EntsoeBaseCoordinator):
                     exc,
                 )
                 missing_areas.add(area_key)
+                self._area_missing_counts[area_key] += 1
+                if self._area_missing_counts[area_key] >= self._missing_threshold:
+                    until = now + suppression_duration
+                    self._area_suppressed_until[area_key] = until
+                    self._area_last_suppressed[area_key] = now
+                    suppressed_this_run.append(area_key)
+                    self._area_missing_counts[area_key] = 0
                 continue
+
+        # Log suppressed and recovered areas
+        if suppressed_this_run:
+            self.logger.info(
+                "ENTSO-e wind and solar forecast data unavailable for %s; retrying in 6h.",
+                self._format_area_names(suppressed_this_run),
+            )
+
+        if recovered_this_run:
+            self.logger.info(
+                "ENTSO-e wind and solar forecast data resumed for: %s.",
+                self._format_area_names(recovered_this_run),
+            )
 
         aggregated = {
             timestamp: dict(values) for timestamp, values in aggregate.items()
