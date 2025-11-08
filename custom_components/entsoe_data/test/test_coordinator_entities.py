@@ -705,3 +705,52 @@ def test_wind_solar_sensor_category_handling(hass):
     assert attrs["next_value"] == 330.0
 
 
+def test_sensor_unit_migration_from_empty_to_mw(hass):
+    """Test that sensors can restore state from empty unit to MW."""
+    from homeassistant.components.sensor import SensorData
+    
+    # Create a generation coordinator
+    coordinator = EntsoeGenerationCoordinator(hass, "test", "BE")
+    timestamp = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
+    coordinator.data = {
+        timestamp: {"biomass": 100.0, TOTAL_GENERATION_KEY: 100.0},
+        timestamp + timedelta(hours=1): {"biomass": 110.0, TOTAL_GENERATION_KEY: 110.0},
+    }
+    coordinator._available_categories = {"biomass"}
+    
+    # Get sensor description
+    descriptions = generation_sensor_descriptions(coordinator)
+    description = next(desc for desc in descriptions if desc.category == "biomass")
+    
+    config_entry = type(
+        "ConfigEntry",
+        (),
+        {
+            "entry_id": "entry",
+            "options": {CONF_AREA: "BE"},
+        },
+    )()
+    
+    # Create sensor
+    sensor = EntsoeGenerationSensor(
+        coordinator, description, config_entry, "Belgium"
+    )
+    sensor.hass = hass
+    
+    # Simulate previous state with empty unit and value 95.0
+    sensor._last_sensor_data = SensorData(native_value=95.0, native_unit_of_measurement="")
+    
+    # Call async_added_to_hass to restore state
+    asyncio.run(sensor.async_added_to_hass())
+    
+    # Verify that the value was restored
+    assert sensor._attr_native_value == 95.0
+    
+    # Verify that the sensor now has the correct unit (MW)
+    assert description.native_unit_of_measurement == "MW"
+    
+    # After coordinator update, the value should update normally
+    asyncio.run(sensor.async_update())
+    assert sensor.native_value == 100.0
+
+

@@ -61,6 +61,12 @@ def install_hass_stubs() -> None:
         suggested_display_precision: int | None = None
         device_class: str | None = None
 
+    @dataclass
+    class SensorData:
+        """Stub for SensorData returned by async_get_last_sensor_data."""
+        native_value: Any
+        native_unit_of_measurement: str | None = None
+
     class RestoreSensor:
         def __init__(self) -> None:
             self._attr_native_value: Any = None
@@ -72,6 +78,15 @@ def install_hass_stubs() -> None:
             self._attr_suggested_display_precision: int | None = None
             self.entity_id: str | None = None
             self.hass: Any = None
+            self._last_sensor_data: SensorData | None = None
+
+        async def async_get_last_sensor_data(self) -> SensorData | None:
+            """Return the last stored sensor data (mock)."""
+            return self._last_sensor_data
+
+        async def async_added_to_hass(self) -> None:
+            """Handle entity added to hass (mock)."""
+            return None
 
         async def async_update(self) -> None:  # pragma: no cover - stub
             return None
@@ -91,6 +106,7 @@ def install_hass_stubs() -> None:
     sensor.SensorStateClass = SensorStateClass
     sensor.SensorEntityDescription = SensorEntityDescription
     sensor.RestoreSensor = RestoreSensor
+    sensor.SensorData = SensorData
 
     # ------------------------------------------------------------------
     # Config entries
@@ -256,6 +272,10 @@ def install_hass_stubs() -> None:
         def __init__(self, coordinator: DataUpdateCoordinator) -> None:
             self.coordinator = coordinator
             self.hass = getattr(coordinator, "hass", None)
+
+        async def async_added_to_hass(self) -> None:
+            """Handle entity added to hass (mock)."""
+            return None
 
         @property
         def available(self) -> bool:  # pragma: no cover - stub
