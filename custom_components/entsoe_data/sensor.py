@@ -850,6 +850,18 @@ class _HourlyCoordinatorSensor(CoordinatorEntity, RestoreSensor):
         self._unsub_update: Callable[[], None] | None = None
         self._last_update_success = True
 
+    async def async_added_to_hass(self) -> None:
+        """Handle entity added to hass and restore previous state."""
+        await super().async_added_to_hass()
+        
+        # Restore previous state if available
+        last_sensor_data = await self.async_get_last_sensor_data()
+        if last_sensor_data is not None:
+            # Restore the native value regardless of the previous unit
+            # The unit will be set to the current native_unit_of_measurement
+            # This allows migration from empty units to MW
+            self._attr_native_value = last_sensor_data.native_value
+
     async def async_will_remove_from_hass(self) -> None:
         if self._unsub_update:
             self._unsub_update()
